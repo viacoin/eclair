@@ -49,7 +49,7 @@ class IntegrationSpec extends TestKit(ActorSystem("test")) with FunSuiteLike wit
     Files.createDirectories(PATH_BITCOIND_DATADIR.toPath)
     Files.copy(classOf[IntegrationSpec].getResourceAsStream("/integration/bitcoin.conf"), new File(PATH_BITCOIND_DATADIR.toString, "bitcoin.conf").toPath)
 
-    bitcoinrpcclient = new BitcoinJsonRPCClient(user = "foo", password = "bar", host = "localhost", port = 28332)
+    bitcoinrpcclient = new BitcoinJsonRPCClient(user = "foo", password = "bar", host = "localhost", port = 25332)
     bitcoincli = system.actorOf(Props(new Actor {
       override def receive: Receive = {
         case BitcoinReq(method, Nil) =>
@@ -106,7 +106,7 @@ class IntegrationSpec extends TestKit(ActorSystem("test")) with FunSuiteLike wit
     elecxtrumx = Process(s"$PATH_ELECTRUMX/electrumx_server.py",
       None,
       "DB_DIRECTORY" -> PATH_ELECTRUMX_DBDIR.getAbsolutePath,
-      "DAEMON_URL" -> "foo:bar@localhost:28332",
+      "DAEMON_URL" -> "foo:bar@localhost:25332",
       "COIN" -> "BitcoinSegwit",
       "NET" -> "regtest",
       "TCP_PORT" -> "51001").run()
