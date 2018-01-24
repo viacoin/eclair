@@ -192,7 +192,7 @@ class GUIUpdater(mainController: MainController) extends Actor with ActorLogging
 
     case ZMQDisconnected =>
       log.debug("ZMQ connection DOWN")
-      mainController.showBlockerModal("Bitcoin Core")
+      mainController.showBlockerModal("Viacoin Core")
 
     case ElectrumConnected =>
       log.debug("Electrum connection UP")

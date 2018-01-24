@@ -29,9 +29,9 @@ Please see the latest [release note](https://github.com/ACINQ/eclair/releases) f
 
 :warning: **Those are valid for the most up-to-date, unreleased, version of eclair. Here are the [instructions for Eclair 0.2-alpha8](https://github.com/ACINQ/eclair/blob/v0.2-alpha8/README.md#installation)**.
 
-### Configuring Bitcoin Core
+### Configuring Viacoin Core
 
-Eclair needs a _synchronized_, _segwit-ready_, **_zeromq-enabled_**, _wallet-enabled_, _non-pruning_, _tx-indexing_ [Bitcoin Core](https://github.com/bitcoin/bitcoin) node. This means that on Windows you will need Bitcoin Core 0.14+.
+Eclair needs a _synchronized_, _segwit-ready_, **_zeromq-enabled_**, _wallet-enabled_, _non-pruning_, _tx-indexing_ [Viacoin Core](https://github.com/bitcoin/bitcoin) node. This means that on Windows you will need Viacoin Core 0.14+.
 
 Run bitcoind with the following minimal `bitcoin.conf`:
 ```
@@ -96,9 +96,9 @@ name                         | description                                      
  eclair.api.enabled          | Enable/disable the API                                                                | false. By default the API is disabled. If you want to enable it, you must set a password.
  eclair.api.port             | API HTTP port                                                                         | 8080
  eclair.api.password         | API password (BASIC)                                                                  | "" (must be set if the API is enabled)
- eclair.bitcoind.rpcuser     | Bitcoin Core RPC user                                                                 | foo
- eclair.bitcoind.rpcpassword | Bitcoin Core RPC password                                                             | bar
- eclair.bitcoind.zmq         | Bitcoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
+ eclair.bitcoind.rpcuser     | Viacoin Core RPC user                                                                 | foo
+ eclair.bitcoind.rpcpassword | Viacoin Core RPC password                                                             | bar
+ eclair.bitcoind.zmq         | Viacoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
  eclair.gui.unit             | Unit in which amounts are displayed (possible values: msat, sat, mbtc, btc)           | btc 
 
 Quotes are not required unless the value contains special characters. Full syntax guide [here](https://github.com/lightbend/config/blob/master/HOCON.md).
