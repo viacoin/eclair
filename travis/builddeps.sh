@@ -9,17 +9,17 @@ cd libbase58
 ./autogen.sh && ./configure && make && sudo make install
 # lightning
 cd
-git clone https://github.com/ElementsProject/lightning.git
+git clone https://github.com/viacoin/lightning.git
 cd lightning
-git checkkout fce9ee29e3c37b4291ebb050e6a687cfaa7df95a
+git checkkout 15c0828206a24b56d131467fc9b0edc48a19459d
 git submodule init
 git submodule update
 make
 # bitcoind
 cd
-wget https://bitcoin.org/bin/bitcoin-core-0.13.0/bitcoin-0.13.0-x86_64-linux-gnu.tar.gz
-echo "bcc1e42d61f88621301bbb00512376287f9df4568255f8b98bc10547dced96c8  bitcoin-0.13.0-x86_64-linux-gnu.tar.gz" > sha256sum.asc
+wget https://github.com/viacoin/viacoin/releases/download/v0.13.3.7/viacoin-0.13.3-x86_64-linux-gnu.tar.gz
+echo "f95915761e0c6803697014a484da9370fbf470972f20144fd37c881207703a61 viacoin-0.13.3-x86_64-linux-gnu.tar.gz" > sha256sum.asc
 sha256sum -c sha256sum.asc
-tar xzvf bitcoin-0.13.0-x86_64-linux-gnu.tar.gz
+tar xzvf viacoin-0.13.3-x86_64-linux-gnu.tar.gz
 popd
 
