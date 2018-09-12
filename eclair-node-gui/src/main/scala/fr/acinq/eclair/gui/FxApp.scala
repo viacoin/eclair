@@ -1,6 +1,23 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.gui
 
 import java.io.File
+
 import javafx.application.Preloader.ErrorNotification
 import javafx.application.{Application, Platform}
 import javafx.event.EventHandler
@@ -8,21 +25,20 @@ import javafx.fxml.FXMLLoader
 import javafx.scene.image.Image
 import javafx.scene.{Parent, Scene}
 import javafx.stage.{Popup, Screen, Stage, WindowEvent}
-
 import akka.actor.{ActorSystem, Props, SupervisorStrategy}
 import fr.acinq.eclair._
 import fr.acinq.eclair.blockchain.bitcoind.zmq.ZMQActor._
 import fr.acinq.eclair.blockchain.electrum.ElectrumClient.ElectrumEvent
 import fr.acinq.eclair.channel.ChannelEvent
 import fr.acinq.eclair.gui.controllers.{MainController, NotificationsController}
-import fr.acinq.eclair.gui.utils.{BtcUnit, CoinUnit, CoinUtils}
 import fr.acinq.eclair.payment.PaymentEvent
+import fr.acinq.eclair.payment.PaymentLifecycle.PaymentResult
 import fr.acinq.eclair.router.NetworkEvent
 import grizzled.slf4j.Logging
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Promise
 import scala.util.{Failure, Success, Try}
-import scala.concurrent.ExecutionContext.Implicits.global
 
 
 /**
@@ -47,6 +63,9 @@ class FxApp extends Application with Logging {
       notifyPreloader(new ErrorNotification("Setup", "Breaking changes!", e))
       notifyPreloader(new AppNotification(InfoAppNotification, "Eclair is still in alpha, and under heavy development. Last update was not backward compatible."))
       notifyPreloader(new AppNotification(InfoAppNotification, "Please reset your datadir."))
+    case e@IncompatibleNetworkDBException =>
+      notifyPreloader(new ErrorNotification("Setup", "Unreadable network database!", e))
+      notifyPreloader(new AppNotification(InfoAppNotification, "Could not read the network database. Please remove the file and restart."))
     case t: Throwable =>
       notifyPreloader(new ErrorNotification("Setup", s"Error: ${t.getLocalizedMessage}", t))
   }
@@ -64,7 +83,7 @@ class FxApp extends Application with Logging {
           mainFXML.setController(controller)
           val mainRoot = mainFXML.load[Parent]
           val datadir = new File(getParameters.getUnnamed.get(0))
-          implicit val system = ActorSystem("system")
+          implicit val system = ActorSystem("eclair-node-gui")
           val setup = new Setup(datadir)
 
           val unitConf = setup.config.getString("gui.unit")
@@ -75,12 +94,13 @@ class FxApp extends Application with Logging {
             case Success(u) => u
           }
 
-          val guiUpdater = setup.system.actorOf(SimpleSupervisor.props(Props(classOf[GUIUpdater], controller), "gui-updater", SupervisorStrategy.Resume))
-          setup.system.eventStream.subscribe(guiUpdater, classOf[ChannelEvent])
-          setup.system.eventStream.subscribe(guiUpdater, classOf[NetworkEvent])
-          setup.system.eventStream.subscribe(guiUpdater, classOf[PaymentEvent])
-          setup.system.eventStream.subscribe(guiUpdater, classOf[ZMQEvent])
-          setup.system.eventStream.subscribe(guiUpdater, classOf[ElectrumEvent])
+          val guiUpdater = system.actorOf(SimpleSupervisor.props(Props(classOf[GUIUpdater], controller), "gui-updater", SupervisorStrategy.Resume))
+          system.eventStream.subscribe(guiUpdater, classOf[ChannelEvent])
+          system.eventStream.subscribe(guiUpdater, classOf[NetworkEvent])
+          system.eventStream.subscribe(guiUpdater, classOf[PaymentEvent])
+          system.eventStream.subscribe(guiUpdater, classOf[PaymentResult])
+          system.eventStream.subscribe(guiUpdater, classOf[ZMQEvent])
+          system.eventStream.subscribe(guiUpdater, classOf[ElectrumEvent])
           pKit.completeWith(setup.bootstrap)
           pKit.future.onComplete {
             case Success(_) =>
@@ -134,7 +154,7 @@ class FxApp extends Application with Logging {
         popup.setHideOnEscape(false)
         popup.setAutoFix(false)
         val margin = 10
-        val width = 300
+        val width = 400
         popup.setWidth(margin + width)
         popup.getContent.add(root)
         // positioning the popup @ TOP RIGHT of screen

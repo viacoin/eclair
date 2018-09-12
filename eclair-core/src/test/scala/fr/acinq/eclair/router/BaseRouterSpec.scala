@@ -1,12 +1,29 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.router
 
 import akka.actor.ActorRef
 import akka.testkit.TestProbe
 import fr.acinq.bitcoin.Crypto.PrivateKey
 import fr.acinq.bitcoin.Script.{pay2wsh, write}
-import fr.acinq.bitcoin.{Block, Satoshi, Transaction, TxOut}
+import fr.acinq.bitcoin.{BinaryData, Block, Satoshi, Transaction, TxOut}
 import fr.acinq.eclair.TestConstants.Alice
-import fr.acinq.eclair.blockchain.{IndividualResult, ParallelGetRequest, ParallelGetResponse, WatchSpentBasic}
+import fr.acinq.eclair.blockchain.{ValidateRequest, ValidateResult, WatchSpentBasic}
+import fr.acinq.eclair.io.Peer.PeerRoutingMessage
 import fr.acinq.eclair.router.Announcements._
 import fr.acinq.eclair.transactions.Scripts
 import fr.acinq.eclair.wire._
@@ -24,7 +41,11 @@ import scala.concurrent.duration._
 @RunWith(classOf[JUnitRunner])
 abstract class BaseRouterSpec extends TestkitBaseClass {
 
+  import BaseRouterSpec._
+
   type FixtureParam = Tuple2[ActorRef, TestProbe]
+
+  val remoteNodeId = PrivateKey(BinaryData("01" * 32), compressed = true).publicKey
 
   val (priv_a, priv_b, priv_c, priv_d, priv_e, priv_f) = (randomKey, randomKey, randomKey, randomKey, randomKey, randomKey)
   val (a, b, c, d, e, f) = (priv_a.publicKey, priv_b.publicKey, priv_c.publicKey, priv_d.publicKey, priv_e.publicKey, priv_f.publicKey)
@@ -41,15 +62,15 @@ abstract class BaseRouterSpec extends TestkitBaseClass {
   val ann_e = makeNodeAnnouncement(priv_e, "node-E", Color(-50, 0, 10), Nil)
   val ann_f = makeNodeAnnouncement(priv_f, "node-F", Color(30, 10, -50), Nil)
 
-  val channelId_ab = toShortId(420000, 1, 0)
-  val channelId_bc = toShortId(420000, 2, 0)
-  val channelId_cd = toShortId(420000, 3, 0)
-  val channelId_ef = toShortId(420000, 4, 0)
+  val channelId_ab = ShortChannelId(420000, 1, 0)
+  val channelId_bc = ShortChannelId(420000, 2, 0)
+  val channelId_cd = ShortChannelId(420000, 3, 0)
+  val channelId_ef = ShortChannelId(420000, 4, 0)
 
-  def channelAnnouncement(channelId: Long, node1_priv: PrivateKey, node2_priv: PrivateKey, funding1_priv: PrivateKey, funding2_priv: PrivateKey) = {
-    val (node1_sig, funding1_sig) = signChannelAnnouncement(Block.RegtestGenesisBlock.hash, channelId, node1_priv, node2_priv.publicKey, funding1_priv, funding2_priv.publicKey, "")
-    val (node2_sig, funding2_sig) = signChannelAnnouncement(Block.RegtestGenesisBlock.hash, channelId, node2_priv, node1_priv.publicKey, funding2_priv, funding1_priv.publicKey, "")
-    makeChannelAnnouncement(Block.RegtestGenesisBlock.hash, channelId, node1_priv.publicKey, node2_priv.publicKey, funding1_priv.publicKey, funding2_priv.publicKey, node1_sig, node2_sig, funding1_sig, funding2_sig)
+  def channelAnnouncement(shortChannelId: ShortChannelId, node1_priv: PrivateKey, node2_priv: PrivateKey, funding1_priv: PrivateKey, funding2_priv: PrivateKey) = {
+    val (node1_sig, funding1_sig) = signChannelAnnouncement(Block.RegtestGenesisBlock.hash, shortChannelId, node1_priv, node2_priv.publicKey, funding1_priv, funding2_priv.publicKey, "")
+    val (node2_sig, funding2_sig) = signChannelAnnouncement(Block.RegtestGenesisBlock.hash, shortChannelId, node2_priv, node1_priv.publicKey, funding2_priv, funding1_priv.publicKey, "")
+    makeChannelAnnouncement(Block.RegtestGenesisBlock.hash, shortChannelId, node1_priv.publicKey, node2_priv.publicKey, funding1_priv.publicKey, funding2_priv.publicKey, node1_sig, node2_sig, funding1_sig, funding2_sig)
   }
 
   val chan_ab = channelAnnouncement(channelId_ab, priv_a, priv_b, priv_funding_a, priv_funding_b)
@@ -82,37 +103,36 @@ abstract class BaseRouterSpec extends TestkitBaseClass {
       val watcher = TestProbe()
       val router = system.actorOf(Router.props(Alice.nodeParams, watcher.ref))
       // we announce channels
-      router ! chan_ab
-      router ! chan_bc
-      router ! chan_cd
-      router ! chan_ef
+      router ! PeerRoutingMessage(remoteNodeId, chan_ab)
+      router ! PeerRoutingMessage(remoteNodeId, chan_bc)
+      router ! PeerRoutingMessage(remoteNodeId, chan_cd)
+      router ! PeerRoutingMessage(remoteNodeId, chan_ef)
       // then nodes
-      router ! ann_a
-      router ! ann_b
-      router ! ann_c
-      router ! ann_d
-      router ! ann_e
-      router ! ann_f
+      router ! PeerRoutingMessage(remoteNodeId, ann_a)
+      router ! PeerRoutingMessage(remoteNodeId, ann_b)
+      router ! PeerRoutingMessage(remoteNodeId, ann_c)
+      router ! PeerRoutingMessage(remoteNodeId, ann_d)
+      router ! PeerRoutingMessage(remoteNodeId, ann_e)
+      router ! PeerRoutingMessage(remoteNodeId, ann_f)
       // then channel updates
-      router ! channelUpdate_ab
-      router ! channelUpdate_ba
-      router ! channelUpdate_bc
-      router ! channelUpdate_cb
-      router ! channelUpdate_cd
-      router ! channelUpdate_dc
-      router ! channelUpdate_ef
-      router ! channelUpdate_fe
-      // we manually trigger a validation
-      router ! TickValidate
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_ab)
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_ba)
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_bc)
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_cb)
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_cd)
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_dc)
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_ef)
+      router ! PeerRoutingMessage(remoteNodeId, channelUpdate_fe)
       // watcher receives the get tx requests
-      assert(watcher.expectMsgType[ParallelGetRequest].ann.toSet === Set(chan_ab, chan_bc, chan_cd, chan_ef))
+      watcher.expectMsg(ValidateRequest(chan_ab))
+      watcher.expectMsg(ValidateRequest(chan_bc))
+      watcher.expectMsg(ValidateRequest(chan_cd))
+      watcher.expectMsg(ValidateRequest(chan_ef))
       // and answers with valid scripts
-      watcher.send(router, ParallelGetResponse(
-        IndividualResult(chan_ab, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_a, funding_b)))) :: Nil, lockTime = 0)), true) ::
-          IndividualResult(chan_bc, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_b, funding_c)))) :: Nil, lockTime = 0)), true) ::
-          IndividualResult(chan_cd, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_c, funding_d)))) :: Nil, lockTime = 0)), true) ::
-          IndividualResult(chan_ef, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_e, funding_f)))) :: Nil, lockTime = 0)), true) :: Nil
-      ))
+      watcher.send(router, ValidateResult(chan_ab, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_a, funding_b)))) :: Nil, lockTime = 0)), true, None))
+      watcher.send(router, ValidateResult(chan_bc, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_b, funding_c)))) :: Nil, lockTime = 0)), true, None))
+      watcher.send(router, ValidateResult(chan_cd, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_c, funding_d)))) :: Nil, lockTime = 0)), true, None))
+      watcher.send(router, ValidateResult(chan_ef, Some(Transaction(version = 0, txIn = Nil, txOut = TxOut(Satoshi(1000000), write(pay2wsh(Scripts.multiSig2of2(funding_e, funding_f)))) :: Nil, lockTime = 0)), true, None))
       // watcher receives watch-spent request
       watcher.expectMsgType[WatchSpentBasic]
       watcher.expectMsgType[WatchSpentBasic]
@@ -134,5 +154,12 @@ abstract class BaseRouterSpec extends TestkitBaseClass {
       test((router, watcher))
     }
   }
+}
 
+object BaseRouterSpec {
+  def channelAnnouncement(channelId: ShortChannelId, node1_priv: PrivateKey, node2_priv: PrivateKey, funding1_priv: PrivateKey, funding2_priv: PrivateKey) = {
+    val (node1_sig, funding1_sig) = signChannelAnnouncement(Block.RegtestGenesisBlock.hash, channelId, node1_priv, node2_priv.publicKey, funding1_priv, funding2_priv.publicKey, "")
+    val (node2_sig, funding2_sig) = signChannelAnnouncement(Block.RegtestGenesisBlock.hash, channelId, node2_priv, node1_priv.publicKey, funding2_priv, funding1_priv.publicKey, "")
+    makeChannelAnnouncement(Block.RegtestGenesisBlock.hash, channelId, node1_priv.publicKey, node2_priv.publicKey, funding1_priv.publicKey, funding2_priv.publicKey, node1_sig, node2_sig, funding1_sig, funding2_sig)
+  }
 }

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.crypto
 
 import org.spongycastle.util.encoders.Hex
@@ -40,12 +56,12 @@ case class BitStream(bytes: Vector[Byte], offstart: Int, offend: Int) {
     * append bytes to a bitstream
     *
     * @param input bytes to append
-    * @return an udpdate bitstream
+    * @return an updated bitstream
     */
   def writeBytes(input: Seq[Byte]): BitStream = input.foldLeft(this) { case (bs, b) => bs.writeByte(b) }
 
   /**
-    * append a bit to a bistream
+    * append a bit to a bitstream
     *
     * @param bit bit to append
     * @return an update bitstream
@@ -63,7 +79,7 @@ case class BitStream(bytes: Vector[Byte], offstart: Int, offend: Int) {
   }
 
   /**
-    * append bits to a bistream
+    * append bits to a bitstream
     *
     * @param input bits to append
     * @return an update bitstream

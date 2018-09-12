@@ -1,8 +1,25 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.blockchain.bitcoind.rpc
 
 import fr.acinq.bitcoin._
-import fr.acinq.eclair.blockchain.{IndividualResult, ParallelGetResponse}
-import fr.acinq.eclair.fromShortId
+import fr.acinq.eclair.ShortChannelId.coordinates
+import fr.acinq.eclair.TxCoordinates
+import fr.acinq.eclair.blockchain.ValidateResult
 import fr.acinq.eclair.wire.ChannelAnnouncement
 import org.json4s.JsonAST._
 
@@ -15,13 +32,6 @@ import scala.util.Try
 class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) {
 
   implicit val formats = org.json4s.DefaultFormats
-
-  // TODO: this will probably not be needed once segwit is merged into core
-  val protocolVersion = Protocol.PROTOCOL_VERSION
-
-  def tx2Hex(tx: Transaction): String = toHexString(Transaction.write(tx, protocolVersion))
-
-  def hex2tx(hex: String): Transaction = Transaction.read(hex, protocolVersion)
 
   def getTxConfirmations(txId: String)(implicit ec: ExecutionContext): Future[Option[Int]] =
     rpcClient.invoke("getrawtransaction", txId, 1) // we choose verbose output to get the number of confirmations
@@ -43,9 +53,10 @@ class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) {
         case Some(b) => Future.successful(b)
         case None => rpcClient.invoke("getbestblockhash") collect { case JString(b) => b }
       }
-      (prevblockhash, txids) <- rpcClient.invoke("getblock", blockhash).map(json => ((json \ "previousblockhash").extract[String], (json \ "tx").extract[List[String]]))
-      txes <- Future.sequence(txids.map(getTransaction(_)))
-      res <- txes.find(tx => tx.txIn.exists(i => i.outPoint.txid.toString() == txid && i.outPoint.index == outputIndex)) match {
+      // with a verbosity of 0, getblock returns the raw serialized block
+      block <- rpcClient.invoke("getblock", blockhash, 0).collect { case JString(b) => Block.read(b) }
+      prevblockhash = BinaryData(block.header.hashPreviousBlock.reverse).toString
+      res <- block.tx.find(tx => tx.txIn.exists(i => i.outPoint.txid.toString() == txid && i.outPoint.index == outputIndex)) match {
         case None => lookForSpendingTx(Some(prevblockhash), txid, outputIndex)
         case Some(tx) => Future.successful(tx)
       }
@@ -56,21 +67,6 @@ class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) {
       txids <- rpcClient.invoke("getrawmempool").map(json => json.extract[List[String]])
       txs <- Future.sequence(txids.map(getTransaction(_)))
     } yield txs
-
-  /**
-    * *used in interop test*
-    * tell bitcoind to sent bitcoins from a specific local account
-    *
-    * @param account     name of the local account to send bitcoins from
-    * @param destination destination address
-    * @param amount      amount in BTC (not milliBTC, not Satoshis !!)
-    * @param ec          execution context
-    * @return a Future[txid] where txid (a String) is the is of the tx that sends the bitcoins
-    */
-  def sendFromAccount(account: String, destination: String, amount: Double)(implicit ec: ExecutionContext): Future[String] =
-    rpcClient.invoke("sendfrom", account, destination, amount) collect {
-      case JString(txid) => txid
-    }
 
   /**
     * @param txId
@@ -85,20 +81,10 @@ class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) {
   def getTransaction(txId: String)(implicit ec: ExecutionContext): Future[Transaction] =
     getRawTransaction(txId).map(raw => Transaction.read(raw))
 
-  def getTransaction(height: Int, index: Int)(implicit ec: ExecutionContext): Future[Transaction] =
+  def isTransactionOutputSpendable(txId: String, outputIndex: Int, includeMempool: Boolean)(implicit ec: ExecutionContext): Future[Boolean] =
     for {
-      hash <- rpcClient.invoke("getblockhash", height).map(json => json.extract[String])
-      json <- rpcClient.invoke("getblock", hash)
-      JArray(txs) = json \ "tx"
-      txid = txs(index).extract[String]
-      tx <- getTransaction(txid)
-    } yield tx
-
-  def isTransactionOuputSpendable(txId: String, ouputIndex: Int, includeMempool: Boolean)(implicit ec: ExecutionContext): Future[Boolean] =
-    for {
-      json <- rpcClient.invoke("gettxout", txId, ouputIndex, includeMempool)
+      json <- rpcClient.invoke("gettxout", txId, outputIndex, includeMempool)
     } yield json != JNull
-
 
   /**
     *
@@ -126,7 +112,7 @@ class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) {
     }
 
   def publishTransaction(tx: Transaction)(implicit ec: ExecutionContext): Future[String] =
-    publishTransaction(tx2Hex(tx))
+    publishTransaction(tx.toString())
 
   /**
     * We need this to compute absolute timeouts expressed in number of blocks (where getBlockCount would be equivalent
@@ -140,46 +126,21 @@ class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) {
       case JInt(count) => count.toLong
     }
 
-  def getParallel(awaiting: Seq[ChannelAnnouncement]): Future[ParallelGetResponse] = {
-    case class TxCoordinate(blockHeight: Int, txIndex: Int, outputIndex: Int)
-
-    val coordinates = awaiting.map {
-      case c =>
-        val (blockHeight, txIndex, outputIndex) = fromShortId(c.shortChannelId)
-        TxCoordinate(blockHeight, txIndex, outputIndex)
-    }.zipWithIndex
-
-    import ExecutionContext.Implicits.global
-    implicit val formats = org.json4s.DefaultFormats
+  def validate(c: ChannelAnnouncement)(implicit ec: ExecutionContext): Future[ValidateResult] = {
+    val TxCoordinates(blockHeight, txIndex, outputIndex) = coordinates(c.shortChannelId)
 
     for {
-      blockHashes: Seq[String] <- rpcClient.invoke(coordinates.map(coord => ("getblockhash", coord._1.blockHeight :: Nil))).map(_.map(_.extractOrElse[String]("00" * 32)))
-      txids: Seq[String] <- rpcClient.invoke(blockHashes.map(h => ("getblock", h :: Nil)))
-        .map(_.zipWithIndex)
-        .map(_.map {
-          case (json, idx) => Try {
-            val JArray(txs) = json \ "tx"
-            txs(coordinates(idx)._1.txIndex).extract[String]
-          } getOrElse ("00" * 32)
-        })
-      txs <- rpcClient.invoke(txids.map(txid => ("getrawtransaction", txid :: Nil))).map(_.map {
-        case JString(raw) => Some(Transaction.read(raw))
-        case _ => None
-      })
-      unspent <- rpcClient.invoke(txids.zipWithIndex.map(txid => ("gettxout", txid._1 :: coordinates(txid._2)._1.outputIndex :: true :: Nil))).map(_.map(_ != JNull))
-    } yield ParallelGetResponse(awaiting.zip(txs.zip(unspent)).map(x => IndividualResult(x._1, x._2._1, x._2._2)))
-  }
+      blockHash: String <- rpcClient.invoke("getblockhash", blockHeight).map(_.extractOrElse[String]("00" * 32))
+      txid: String <- rpcClient.invoke("getblock", blockHash).map {
+        case json => Try {
+          val JArray(txs) = json \ "tx"
+          txs(txIndex).extract[String]
+        } getOrElse ("00" * 32)
+      }
+      tx <- getRawTransaction(txid)
+      unspent <- isTransactionOutputSpendable(txid, outputIndex, includeMempool = true)
+    } yield ValidateResult(c, Some(Transaction.read(tx)), unspent, None)
 
-  /**
-    *
-    * @return the list of bitcoin addresses for which the wallet has UTXOs
-    */
-  def listUnspentAddresses: Future[Seq[String]] = {
-    import ExecutionContext.Implicits.global
-    implicit val formats = org.json4s.DefaultFormats
+  } recover { case t: Throwable => ValidateResult(c, None, false, Some(t)) }
 
-    rpcClient.invoke("listunspent").collect {
-      case JArray(values) => values.map(value => (value \ "address").extract[String])
-    }
-  }
 }

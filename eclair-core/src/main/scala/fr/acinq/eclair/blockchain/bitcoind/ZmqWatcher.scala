@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.blockchain.bitcoind
 
 import java.util.concurrent.Executors
@@ -48,7 +64,7 @@ class ZmqWatcher(client: ExtendedBitcoinClient)(implicit ec: ExecutionContext = 
 
     case NewBlock(block) =>
       // using a Try because in tests we generate fake blocks
-      log.debug(s"received blockid=${Try(block.blockId).getOrElse(BinaryData(""))}")
+      log.debug(s"received blockid=${Try(block.blockId).getOrElse(BinaryData.empty)}")
       nextTick.map(_.cancel()) // this may fail or succeed, worse case scenario we will have two ticks in a row (no big deal)
       log.debug(s"scheduling a new task to check on tx confirmations")
       // we do this to avoid herd effects in testing when generating a lots of blocks in a row
@@ -83,9 +99,9 @@ class ZmqWatcher(client: ExtendedBitcoinClient)(implicit ec: ExecutionContext = 
       w match {
         case WatchSpentBasic(_, txid, outputIndex, _, _) =>
           // not: we assume parent tx was published, we just need to make sure this particular output has not been spent
-          client.isTransactionOuputSpendable(txid.toString(), outputIndex, true).collect {
+          client.isTransactionOutputSpendable(txid.toString(), outputIndex, true).collect {
             case false =>
-              log.warning(s"output=$outputIndex of txid=$txid has already been spent")
+              log.info(s"output=$outputIndex of txid=$txid has already been spent")
               self ! TriggerEvent(w, WatchEventSpentBasic(w.event))
           }
 
@@ -94,20 +110,19 @@ class ZmqWatcher(client: ExtendedBitcoinClient)(implicit ec: ExecutionContext = 
           client.getTxConfirmations(txid.toString()).collect {
             case Some(_) =>
               // parent tx was published, we need to make sure this particular output has not been spent
-              client.isTransactionOuputSpendable(txid.toString(), outputIndex, true).collect {
+              client.isTransactionOutputSpendable(txid.toString(), outputIndex, true).collect {
                 case false =>
-                  log.warning(s"output=$outputIndex of txid=$txid has already been spent")
-                  log.warning(s"looking first in the mempool")
+                  log.info(s"$txid:$outputIndex has already been spent, looking for the spending tx in the mempool")
                   client.getMempool().map { mempoolTxs =>
                     mempoolTxs.filter(tx => tx.txIn.exists(i => i.outPoint.txid == txid && i.outPoint.index == outputIndex)) match {
                       case Nil =>
-                        log.warning(s"couldn't find spending tx in the mempool, looking into blocks...")
+                        log.warning(s"$txid:$outputIndex has already been spent, spending tx not in the mempool, looking in the blockchain...")
                         client.lookForSpendingTx(None, txid.toString(), outputIndex).map { tx =>
-                          log.warning(s"found the spending tx in the blockchain: txid=${tx.txid}")
+                          log.warning(s"found the spending tx of $txid:$outputIndex in the blockchain: txid=${tx.txid}")
                           self ! NewTransaction(tx)
                         }
                       case txs =>
-                        log.warning(s"found ${txs.size} spending txs in the mempool: txids=${txs.map(_.txid).mkString(",")}")
+                        log.info(s"found ${txs.size} txs spending $txid:$outputIndex in the mempool: txids=${txs.map(_.txid).mkString(",")}")
                         txs.foreach(tx => self ! NewTransaction(tx))
                     }
                   }
@@ -152,7 +167,7 @@ class ZmqWatcher(client: ExtendedBitcoinClient)(implicit ec: ExecutionContext = 
         context.become(watching(watches, block2tx1, None))
       } else publish(tx)
 
-    case ParallelGetRequest(ann) => client.getParallel(ann).pipeTo(sender)
+    case ValidateRequest(ann) => client.validate(ann).pipeTo(sender)
 
     case Terminated(channel) =>
       // we remove watches associated to dead actor
@@ -170,11 +185,12 @@ class ZmqWatcher(client: ExtendedBitcoinClient)(implicit ec: ExecutionContext = 
   def publish(tx: Transaction, isRetry: Boolean = false): Unit = {
     log.info(s"publishing tx (isRetry=$isRetry): txid=${tx.txid} tx=$tx")
     client.publishTransaction(tx)(singleThreadExecutionContext).recover {
-      case t: Throwable if t.getMessage.contains("-25") && !isRetry => // we retry only once
+      case t: Throwable if t.getMessage.contains("(code: -25)") && !isRetry => // we retry only once
         import akka.pattern.after
 
         import scala.concurrent.duration._
         after(3 seconds, context.system.scheduler)(Future.successful({})).map(x => publish(tx, isRetry = true))
+      case t: Throwable if t.getMessage.contains("(code: -27)") => () // "transaction already in block chain (code: -27)" ignore error
       case t: Throwable => log.error(s"cannot publish tx: reason=${t.getMessage} txid=${tx.txid} tx=$tx")
     }
   }

@@ -1,8 +1,25 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.blockchain.electrum
 
 import akka.actor.{ActorRef, ActorSystem}
 import akka.pattern.ask
-import fr.acinq.bitcoin.{Base58, Base58Check, BinaryData, OP_EQUAL, OP_HASH160, OP_PUSHDATA, Satoshi, Script, Transaction, TxOut}
+import fr.acinq.bitcoin.{BinaryData, Satoshi, Script, Transaction, TxOut}
+import fr.acinq.eclair.addressToPublicKeyScript
 import fr.acinq.eclair.blockchain.electrum.ElectrumClient.BroadcastTransaction
 import fr.acinq.eclair.blockchain.electrum.ElectrumWallet._
 import fr.acinq.eclair.blockchain.{EclairWallet, MakeFundingTxResponse}
@@ -10,17 +27,19 @@ import grizzled.slf4j.Logging
 
 import scala.concurrent.{ExecutionContext, Future}
 
-class ElectrumEclairWallet(val wallet: ActorRef)(implicit system: ActorSystem, ec: ExecutionContext, timeout: akka.util.Timeout) extends EclairWallet with Logging {
+class ElectrumEclairWallet(val wallet: ActorRef, chainHash: BinaryData)(implicit system: ActorSystem, ec: ExecutionContext, timeout: akka.util.Timeout) extends EclairWallet with Logging {
 
   override def getBalance = (wallet ? GetBalance).mapTo[GetBalanceResponse].map(balance => balance.confirmed + balance.unconfirmed)
 
   override def getFinalAddress = (wallet ? GetCurrentReceiveAddress).mapTo[GetCurrentReceiveAddressResponse].map(_.address)
 
-  override def makeFundingTx(pubkeyScript: BinaryData, amount: Satoshi, feeRatePerKw: Long) = {
+  def getXpub: Future[GetXpubResponse] = (wallet ? GetXpub).mapTo[GetXpubResponse]
+
+  override def makeFundingTx(pubkeyScript: BinaryData, amount: Satoshi, feeRatePerKw: Long): Future[MakeFundingTxResponse] = {
     val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(amount, pubkeyScript) :: Nil, lockTime = 0)
     (wallet ? CompleteTransaction(tx, feeRatePerKw)).mapTo[CompleteTransactionResponse].map(response => response match {
-      case CompleteTransactionResponse(tx1, None) => MakeFundingTxResponse(tx1, 0)
-      case CompleteTransactionResponse(_, Some(error)) => throw error
+      case CompleteTransactionResponse(tx1, fee1, None) => MakeFundingTxResponse(tx1, 0, fee1)
+      case CompleteTransactionResponse(_, _, Some(error)) => throw error
     })
   }
 
@@ -46,24 +65,28 @@ class ElectrumEclairWallet(val wallet: ActorRef)(implicit system: ActorSystem, e
     }
 
   def sendPayment(amount: Satoshi, address: String, feeRatePerKw: Long): Future[String] = {
-    val publicKeyScript = Base58Check.decode(address) match {
-      case (Base58.Prefix.PubkeyAddressTestnet, pubKeyHash) => Script.pay2pkh(pubKeyHash)
-      case (Base58.Prefix.ScriptAddressTestnet, scriptHash) => OP_HASH160 :: OP_PUSHDATA(scriptHash) :: OP_EQUAL :: Nil
-    }
+    val publicKeyScript = Script.write(addressToPublicKeyScript(address, chainHash))
     val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(amount, publicKeyScript) :: Nil, lockTime = 0)
 
     (wallet ? CompleteTransaction(tx, feeRatePerKw))
       .mapTo[CompleteTransactionResponse]
       .flatMap {
-        case CompleteTransactionResponse(tx, None) => commit(tx).map {
+        case CompleteTransactionResponse(tx, _, None) => commit(tx).map {
           case true => tx.txid.toString()
           case false => throw new RuntimeException(s"could not commit tx=$tx")
         }
-        case CompleteTransactionResponse(_, Some(error)) => throw error
+        case CompleteTransactionResponse(_, _, Some(error)) => throw error
       }
   }
 
-  def getMnemonics: Future[Seq[String]] = (wallet ? GetMnemonicCode).mapTo[GetMnemonicCodeResponse].map(_.mnemonics)
+  def sendAll(address: String, feeRatePerKw: Long): Future[(Transaction, Satoshi)] = {
+    val publicKeyScript = Script.write(addressToPublicKeyScript(address, chainHash))
+    (wallet ? SendAll(publicKeyScript, feeRatePerKw))
+      .mapTo[SendAllResponse]
+      .map {
+        case SendAllResponse(tx, fee) => (tx, fee)
+      }
+  }
 
   override def rollback(tx: Transaction): Future[Boolean] = (wallet ? CancelTransaction(tx)).map(_ => true)
 }

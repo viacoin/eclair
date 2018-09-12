@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.blockchain.electrum
 
 import java.net.InetSocketAddress
@@ -9,7 +25,7 @@ import fr.acinq.eclair.blockchain._
 import fr.acinq.eclair.blockchain.electrum.ElectrumClient._
 import fr.acinq.eclair.channel.{BITCOIN_FUNDING_DEPTHOK, BITCOIN_FUNDING_SPENT, BITCOIN_PARENT_TX_CONFIRMED}
 import fr.acinq.eclair.transactions.Scripts
-import fr.acinq.eclair.{Globals, fromShortId}
+import fr.acinq.eclair.{Globals, ShortChannelId, TxCoordinates}
 
 import scala.collection.SortedMap
 
@@ -19,25 +35,24 @@ class ElectrumWatcher(client: ActorRef) extends Actor with Stash with ActorLoggi
   client ! ElectrumClient.AddStatusListener(self)
 
   override def unhandled(message: Any): Unit = message match {
-    case ParallelGetRequest(announcements) => sender ! ParallelGetResponse(announcements.map {
-      case c =>
+    case ValidateRequest(c) =>
         log.info(s"blindly validating channel=$c")
         val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(PublicKey(c.bitcoinKey1), PublicKey(c.bitcoinKey2))))
-        val (_, _, outputIndex) = fromShortId(c.shortChannelId)
+        val TxCoordinates(_, _, outputIndex) = ShortChannelId.coordinates(c.shortChannelId)
         val fakeFundingTx = Transaction(
           version = 2,
           txIn = Seq.empty[TxIn],
           txOut = List.fill(outputIndex + 1)(TxOut(Satoshi(0), pubkeyScript)), // quick and dirty way to be sure that the outputIndex'th output is of the expected format
           lockTime = 0)
-        IndividualResult(c, Some(fakeFundingTx), true)
-    })
+      sender ! ValidateResult(c, Some(fakeFundingTx), true, None)
+
     case _ => log.warning(s"unhandled message $message")
   }
 
   def receive = disconnected(Set.empty, Nil, SortedMap.empty)
 
   def disconnected(watches: Set[Watch], publishQueue: Seq[PublishAsap], block2tx: SortedMap[Long, Seq[Transaction]]): Receive = {
-    case ElectrumClient.ElectrumReady =>
+    case ElectrumClient.ElectrumReady(_, _) =>
       client ! ElectrumClient.HeaderSubscription(self)
     case ElectrumClient.HeaderSubscriptionResponse(header) =>
       watches.map(self ! _)
@@ -184,7 +199,7 @@ class ElectrumWatcher(client: ActorRef) extends Actor with Stash with ActorLoggi
 
     case ElectrumClient.ElectrumDisconnected =>
       // we remember watches and keep track of tx that have not yet been published
-      // we also re-send the txes that we previsouly sent but hadn't yet received the confirmation
+      // we also re-send the txes that we previously sent but hadn't yet received the confirmation
       context become disconnected(watches, sent.map(PublishAsap(_)), block2tx)
   }
 
@@ -193,10 +208,10 @@ class ElectrumWatcher(client: ActorRef) extends Actor with Stash with ActorLoggi
 object ElectrumWatcher extends App {
 
   val system = ActorSystem()
+  import scala.concurrent.ExecutionContext.Implicits.global
 
   class Root extends Actor with ActorLogging {
-    val serverAddresses = Seq(new InetSocketAddress("localhost", 51000), new InetSocketAddress("localhost", 51001))
-    val client = context.actorOf(Props(new ElectrumClient(serverAddresses)), "client")
+    val client = context.actorOf(Props(new ElectrumClient(new InetSocketAddress("localhost", 51000))), "client")
     client ! ElectrumClient.AddStatusListener(self)
 
     override def unhandled(message: Any): Unit = {
@@ -205,7 +220,7 @@ object ElectrumWatcher extends App {
     }
 
     def receive = {
-      case ElectrumClient.ElectrumReady =>
+      case ElectrumClient.ElectrumReady(_, _) =>
         log.info(s"starting watcher")
         context become running(context.actorOf(Props(new ElectrumWatcher(client)), "watcher"))
     }

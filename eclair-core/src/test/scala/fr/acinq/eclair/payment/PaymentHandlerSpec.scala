@@ -1,15 +1,36 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.payment
 
-import akka.actor.{ActorSystem, Status}
 import akka.actor.Status.Failure
+import akka.actor.{ActorSystem, Status}
 import akka.testkit.{TestKit, TestProbe}
 import fr.acinq.bitcoin.{MilliSatoshi, Satoshi}
 import fr.acinq.eclair.TestConstants.Alice
-import fr.acinq.eclair.channel.CMD_FULFILL_HTLC
-import fr.acinq.eclair.wire.UpdateAddHtlc
+import fr.acinq.eclair.channel.{CMD_FAIL_HTLC, CMD_FULFILL_HTLC}
+import fr.acinq.eclair.payment.PaymentLifecycle.{CheckPayment, ReceivePayment}
+import fr.acinq.eclair.payment.PaymentRequest.ExtraHop
+import fr.acinq.eclair.wire.{FinalExpiryTooSoon, UpdateAddHtlc}
+import fr.acinq.eclair.{Globals, ShortChannelId, randomKey}
 import org.junit.runner.RunWith
 import org.scalatest.FunSuiteLike
 import org.scalatest.junit.JUnitRunner
+
+import scala.concurrent.duration._
 
 /**
   * Created by PM on 24/03/2017.
@@ -17,7 +38,7 @@ import org.scalatest.junit.JUnitRunner
 @RunWith(classOf[JUnitRunner])
 class PaymentHandlerSpec extends TestKit(ActorSystem("test")) with FunSuiteLike {
 
-  test("LocalPaymentHandler should send PaymentReceived and adds payment in DB") {
+  test("LocalPaymentHandler should reply with a fulfill/fail, emit a PaymentReceived and adds payment in DB") {
     val nodeParams = Alice.nodeParams
     val handler = system.actorOf(LocalPaymentHandler.props(nodeParams))
     val sender = TestProbe()
@@ -25,26 +46,48 @@ class PaymentHandlerSpec extends TestKit(ActorSystem("test")) with FunSuiteLike 
     system.eventStream.subscribe(eventListener.ref, classOf[PaymentReceived])
 
     val amountMsat = MilliSatoshi(42000)
-    sender.send(handler, ReceivePayment(Some(amountMsat), "1 coffee"))
-    val pr = sender.expectMsgType[PaymentRequest]
+    val expiry = Globals.blockCount.get() + 12
 
-    val add = UpdateAddHtlc("11" * 32, 0, amountMsat.amount, pr.paymentHash, 0, "")
-    sender.send(handler, add)
-    sender.expectMsgType[CMD_FULFILL_HTLC]
-    eventListener.expectMsg(PaymentReceived(amountMsat, add.paymentHash))
+    {
+      sender.send(handler, ReceivePayment(Some(amountMsat), "1 coffee"))
+      val pr = sender.expectMsgType[PaymentRequest]
+      sender.send(handler, CheckPayment(pr.paymentHash))
+      assert(sender.expectMsgType[Boolean] === false)
+      val add = UpdateAddHtlc("11" * 32, 0, amountMsat.amount, pr.paymentHash, expiry, "")
+      sender.send(handler, add)
+      sender.expectMsgType[CMD_FULFILL_HTLC]
+      val paymentRelayed = eventListener.expectMsgType[PaymentReceived]
+      assert(paymentRelayed.copy(timestamp = 0) === PaymentReceived(amountMsat,add.paymentHash, add.channelId, timestamp = 0))
+      sender.send(handler, CheckPayment(pr.paymentHash))
+      assert(sender.expectMsgType[Boolean] === true)
+    }
 
-    sender.send(handler, ReceivePayment(Some(amountMsat), "another coffee"))
-    val pr_2 = sender.expectMsgType[PaymentRequest]
+    {
+      sender.send(handler, ReceivePayment(Some(amountMsat), "another coffee"))
+      val pr = sender.expectMsgType[PaymentRequest]
+      sender.send(handler, CheckPayment(pr.paymentHash))
+      assert(sender.expectMsgType[Boolean] === false)
+      val add = UpdateAddHtlc("11" * 32, 0, amountMsat.amount, pr.paymentHash, expiry, "")
+      sender.send(handler, add)
+      sender.expectMsgType[CMD_FULFILL_HTLC]
+      val paymentRelayed = eventListener.expectMsgType[PaymentReceived]
+      assert(paymentRelayed.copy(timestamp = 0) === PaymentReceived(amountMsat,add.paymentHash, add.channelId, timestamp = 0))
+      sender.send(handler, CheckPayment(pr.paymentHash))
+      assert(sender.expectMsgType[Boolean] === true)
+    }
 
-    val add_2 = UpdateAddHtlc("11" * 32, 0, amountMsat.amount, pr_2.paymentHash, 0, "")
-    sender.send(handler, add_2)
-    sender.expectMsgType[CMD_FULFILL_HTLC]
-    eventListener.expectMsg(PaymentReceived(amountMsat, add_2.paymentHash))
-
-    val checkPayment_2 = CheckPayment(add_2.paymentHash)
-    sender.send(handler, checkPayment_2)
-    val found = sender.expectMsgType[Boolean]
-    assert(found)
+    {
+      sender.send(handler, ReceivePayment(Some(amountMsat), "bad expiry"))
+      val pr = sender.expectMsgType[PaymentRequest]
+      sender.send(handler, CheckPayment(pr.paymentHash))
+      assert(sender.expectMsgType[Boolean] === false)
+      val add = UpdateAddHtlc("11" * 32, 0, amountMsat.amount, pr.paymentHash, expiry = Globals.blockCount.get() + 3, "")
+      sender.send(handler, add)
+      assert(sender.expectMsgType[CMD_FAIL_HTLC].reason == Right(FinalExpiryTooSoon))
+      eventListener.expectNoMsg(300 milliseconds)
+      sender.send(handler, CheckPayment(pr.paymentHash))
+      assert(sender.expectMsgType[Boolean] === false)
+    }
   }
 
   test("Payment request generation should fail when the amount asked in not valid") {
@@ -72,7 +115,7 @@ class PaymentHandlerSpec extends TestKit(ActorSystem("test")) with FunSuiteLike 
     // success with 1 mBTC
     sender.send(handler, ReceivePayment(Some(MilliSatoshi(100000000L)), "1 coffee"))
     val pr = sender.expectMsgType[PaymentRequest]
-    assert(pr.amount.contains(MilliSatoshi(100000000L)) && pr.nodeId.toString == nodeParams.privateKey.publicKey.toString)
+    assert(pr.amount.contains(MilliSatoshi(100000000L)) && pr.nodeId.toString == nodeParams.nodeId.toString)
   }
 
   test("Payment request generation should fail when there are too many pending requests") {
@@ -93,11 +136,39 @@ class PaymentHandlerSpec extends TestKit(ActorSystem("test")) with FunSuiteLike 
   test("Payment request generation should succeed when the amount is not set") {
     val handler = system.actorOf(LocalPaymentHandler.props(Alice.nodeParams))
     val sender = TestProbe()
-    val eventListener = TestProbe()
-    system.eventStream.subscribe(eventListener.ref, classOf[PaymentReceived])
 
     sender.send(handler, ReceivePayment(None, "This is a donation PR"))
     val pr = sender.expectMsgType[PaymentRequest]
-    assert(pr.amount.isEmpty && pr.nodeId.toString == Alice.nodeParams.privateKey.publicKey.toString)
+    assert(pr.amount.isEmpty && pr.nodeId.toString == Alice.nodeParams.nodeId.toString)
+  }
+
+  test("Payment request generation should handle custom expiries or use the default otherwise") {
+    val handler = system.actorOf(LocalPaymentHandler.props(Alice.nodeParams))
+    val sender = TestProbe()
+
+    sender.send(handler, ReceivePayment(Some(MilliSatoshi(42000)), "1 coffee"))
+    assert(sender.expectMsgType[PaymentRequest].expiry === Some(Alice.nodeParams.paymentRequestExpiry.toSeconds))
+
+    sender.send(handler, ReceivePayment(Some(MilliSatoshi(42000)), "1 coffee with custom expiry", expirySeconds_opt = Some(60)))
+    assert(sender.expectMsgType[PaymentRequest].expiry === Some(60))
+  }
+
+  test("Generated payment request contains the provided extra hops") {
+    val handler = system.actorOf(LocalPaymentHandler.props(Alice.nodeParams))
+    val sender = TestProbe()
+
+    val x = randomKey.publicKey
+    val y = randomKey.publicKey
+    val extraHop_x_y = ExtraHop(x, ShortChannelId(1), 10, 11, 12)
+    val extraHop_y_z = ExtraHop(y, ShortChannelId(2), 20, 21, 22)
+    val extraHop_x_t = ExtraHop(x, ShortChannelId(3), 30, 31, 32)
+    val route_x_z = extraHop_x_y :: extraHop_y_z :: Nil
+    val route_x_t = extraHop_x_t :: Nil
+
+    sender.send(handler, ReceivePayment(Some(MilliSatoshi(42000)), "1 coffee with additional routing info", extraHops = Seq(route_x_z, route_x_t)))
+    assert(sender.expectMsgType[PaymentRequest].routingInfo === Seq(route_x_z, route_x_t))
+
+    sender.send(handler, ReceivePayment(Some(MilliSatoshi(42000)), "1 coffee without routing info"))
+    assert(sender.expectMsgType[PaymentRequest].routingInfo === Nil)
   }
 }

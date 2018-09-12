@@ -11,7 +11,7 @@ cd libbase58
 cd
 git clone https://github.com/viacoin/lightning.git
 cd lightning
-git checkkout 15c0828206a24b56d131467fc9b0edc48a19459d
+git checkout 84f8710a66e04e79b5069502ea1fea61770c3588
 git submodule init
 git submodule update
 make

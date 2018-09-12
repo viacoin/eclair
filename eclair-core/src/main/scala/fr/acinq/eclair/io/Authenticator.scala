@@ -1,10 +1,27 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.io
 
 import java.net.InetSocketAddress
 
-import akka.actor.{Actor, ActorLogging, ActorRef, OneForOneStrategy, Props, Status, SupervisorStrategy, Terminated}
+import akka.actor.{Actor, ActorLogging, ActorRef, DiagnosticActorLogging, OneForOneStrategy, Props, Status, SupervisorStrategy, Terminated}
+import akka.event.Logging.MDC
 import fr.acinq.bitcoin.Crypto.PublicKey
-import fr.acinq.eclair.NodeParams
+import fr.acinq.eclair.{Logs, NodeParams}
 import fr.acinq.eclair.crypto.Noise.KeyPair
 import fr.acinq.eclair.crypto.TransportHandler
 import fr.acinq.eclair.crypto.TransportHandler.HandshakeCompleted
@@ -17,7 +34,7 @@ import fr.acinq.eclair.wire.LightningMessageCodecs
   *
   * All incoming/outgoing connections are processed here, before being sent to the switchboard
   */
-class Authenticator(nodeParams: NodeParams) extends Actor with ActorLogging {
+class Authenticator(nodeParams: NodeParams) extends Actor with DiagnosticActorLogging {
 
   override def receive: Receive = {
     case switchboard: ActorRef => context become ready(switchboard, Map.empty)
@@ -27,10 +44,10 @@ class Authenticator(nodeParams: NodeParams) extends Actor with ActorLogging {
     case pending@PendingAuth(connection, remoteNodeId_opt, address, _) =>
       log.debug(s"authenticating connection to ${address.getHostString}:${address.getPort} (pending=${authenticating.size} handlers=${context.children.size})")
       val transport = context.actorOf(TransportHandler.props(
-        KeyPair(nodeParams.privateKey.publicKey.toBin, nodeParams.privateKey.toBin),
+        KeyPair(nodeParams.nodeId.toBin, nodeParams.privateKey.toBin),
         remoteNodeId_opt.map(_.toBin),
         connection = connection,
-        codec = LightningMessageCodecs.lightningMessageCodec))
+        codec = LightningMessageCodecs.cachedLightningMessageCodec))
       context watch transport
       context become (ready(switchboard, authenticating + (transport -> pending)))
 
@@ -55,6 +72,15 @@ class Authenticator(nodeParams: NodeParams) extends Actor with ActorLogging {
 
   // we should not restart a failing transport-handler
   override val supervisorStrategy = OneForOneStrategy(loggingEnabled = true) { case _ => SupervisorStrategy.Stop }
+
+  override def mdc(currentMessage: Any): MDC = {
+    val remoteNodeId_opt = currentMessage match {
+      case PendingAuth(_, remoteNodeId_opt, _, _) => remoteNodeId_opt
+      case HandshakeCompleted(_, _, remoteNodeId) => Some(remoteNodeId)
+      case _ => None
+    }
+    Logs.mdc(remoteNodeId_opt = remoteNodeId_opt)
+  }
 }
 
 object Authenticator {

@@ -1,15 +1,27 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.blockchain.electrum
 
-import java.io.File
-
-import akka.actor.{ActorRef, LoggingFSM, Props}
-import com.google.common.io.Files
+import akka.actor.{ActorRef, FSM, Props}
 import fr.acinq.bitcoin.Crypto.{PrivateKey, PublicKey}
 import fr.acinq.bitcoin.DeterministicWallet.{ExtendedPrivateKey, derivePrivateKey, hardened}
-import fr.acinq.bitcoin.{Base58, Base58Check, BinaryData, Block, Crypto, DeterministicWallet, MnemonicCode, OP_PUSHDATA, OutPoint, SIGHASH_ALL, Satoshi, Script, ScriptFlags, ScriptWitness, SigVersion, Transaction, TxIn, TxOut}
+import fr.acinq.bitcoin.{Base58, Base58Check, BinaryData, Block, Crypto, DeterministicWallet, OP_PUSHDATA, OutPoint, SIGHASH_ALL, Satoshi, Script, ScriptElt, ScriptWitness, SigVersion, Transaction, TxIn, TxOut}
 import fr.acinq.eclair.blockchain.bitcoind.rpc.Error
 import fr.acinq.eclair.blockchain.electrum.ElectrumClient.{GetTransaction, GetTransactionResponse, TransactionHistoryItem, computeScriptHash}
-import fr.acinq.eclair.randomBytes
 import fr.acinq.eclair.transactions.Transactions
 import grizzled.slf4j.Logging
 
@@ -28,27 +40,26 @@ import scala.util.{Failure, Success, Try}
   * client <--- ask tx        ----- wallet
   * client ---- tx            ----> wallet
   *
-  * @param mnemonics
+  * @param seed
   * @param client
   * @param params
   */
-class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumWallet.WalletParameters) extends LoggingFSM[ElectrumWallet.State, ElectrumWallet.Data] {
+class ElectrumWallet(seed: BinaryData, client: ActorRef, params: ElectrumWallet.WalletParameters) extends FSM[ElectrumWallet.State, ElectrumWallet.Data] {
 
   import ElectrumWallet._
   import params._
 
-  val seed = MnemonicCode.toSeed(mnemonics, "")
   val master = DeterministicWallet.generate(seed)
 
-  val accountMaster = accountKey(master)
-  val changeMaster = changeKey(master)
+  val accountMaster = accountKey(master, chainHash)
+  val changeMaster = changeKey(master, chainHash)
 
   client ! ElectrumClient.AddStatusListener(self)
 
-  // disconnected --> waitingForTip --> running --
+  // disconnected --> waitingForTip --> running --+
   // ^                                            |
   // |                                            |
-  //  --------------------------------------------
+  // +--------------------------------------------+
 
   /**
     * Send a notification if the wallet is ready and its ready message has not
@@ -76,6 +87,7 @@ class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumW
     val header = chainHash match {
       case Block.RegtestGenesisBlock.hash => ElectrumClient.Header.RegtestGenesisHeader
       case Block.TestnetGenesisBlock.hash => ElectrumClient.Header.TestnetGenesisHeader
+      case Block.LivenetGenesisBlock.hash => ElectrumClient.Header.LivenetGenesisHeader
     }
     val firstAccountKeys = (0 until params.swipeRange).map(i => derivePrivateKey(accountMaster, i)).toVector
     val firstChangeKeys = (0 until params.swipeRange).map(i => derivePrivateKey(changeMaster, i)).toVector
@@ -85,7 +97,7 @@ class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumW
   })
 
   when(DISCONNECTED) {
-    case Event(ElectrumClient.ElectrumReady, data) =>
+    case Event(ElectrumClient.ElectrumReady(_, _), data) =>
       client ! ElectrumClient.HeaderSubscription(self)
       goto(WAITING_FOR_TIP) using data
   }
@@ -128,7 +140,7 @@ class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumW
     case Event(ElectrumClient.ScriptHashSubscriptionResponse(scriptHash, status), data) =>
       val key = data.accountKeyMap.getOrElse(scriptHash, data.changeKeyMap(scriptHash))
       val isChange = data.changeKeyMap.contains(scriptHash)
-      log.info(s"received status=$status for scriptHash=$scriptHash key=${segwitAddress(key)} isChange=$isChange")
+      log.info(s"received status=$status for scriptHash=$scriptHash key=${segwitAddress(key, chainHash)} isChange=$isChange")
 
       // let's retrieve the tx history for this key
       client ! ElectrumClient.GetScriptHashHistory(scriptHash)
@@ -138,7 +150,7 @@ class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumW
           // first time this script hash is used, need to generate a new key
           val newKey = if (isChange) derivePrivateKey(changeMaster, data.changeKeys.last.path.lastChildNumber + 1) else derivePrivateKey(accountMaster, data.accountKeys.last.path.lastChildNumber + 1)
           val newScriptHash = computeScriptHashFromPublicKey(newKey.publicKey)
-          log.info(s"generated key with index=${newKey.path.lastChildNumber} scriptHash=$newScriptHash key=${segwitAddress(newKey)} isChange=$isChange")
+          log.info(s"generated key with index=${newKey.path.lastChildNumber} scriptHash=$newScriptHash key=${segwitAddress(newKey, chainHash)} isChange=$isChange")
           // listens to changes for the newly generated key
           client ! ElectrumClient.ScriptHashSubscription(newScriptHash, self)
           if (isChange) (data.accountKeys, data.changeKeys :+ newKey) else (data.accountKeys :+ newKey, data.changeKeys)
@@ -211,9 +223,13 @@ class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumW
 
     case Event(CompleteTransaction(tx, feeRatePerKw), data) =>
       Try(data.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, allowSpendUnconfirmed)) match {
-        case Success((data1, tx1)) => stay using data1 replying CompleteTransactionResponse(tx1, None)
-        case Failure(t) => stay replying CompleteTransactionResponse(tx, Some(t))
+        case Success((data1, tx1, fee1)) => stay using data1 replying CompleteTransactionResponse(tx1, fee1, None)
+        case Failure(t) => stay replying CompleteTransactionResponse(tx, Satoshi(0), Some(t))
       }
+
+    case Event(SendAll(publicKeyScript, feeRatePerKw), data) =>
+      val (tx, fee) = data.spendAll(publicKeyScript, feeRatePerKw)
+      stay replying SendAllResponse(tx, fee)
 
     case Event(CommitTransaction(tx), data) =>
       log.info(s"committing txid=${tx.txid}")
@@ -241,7 +257,6 @@ class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumW
   }
 
   whenUnhandled {
-    case Event(GetMnemonicCode, _) => stay replying GetMnemonicCodeResponse(mnemonics)
 
     case Event(GetCurrentReceiveAddress, data) => stay replying GetCurrentReceiveAddressResponse(data.currentReceiveAddress)
 
@@ -250,6 +265,11 @@ class ElectrumWallet(mnemonics: Seq[String], client: ActorRef, params: ElectrumW
       stay replying GetBalanceResponse(confirmed, unconfirmed)
 
     case Event(GetData, data) => stay replying GetDataResponse(data)
+
+    case Event(GetXpub ,_) => {
+      val (xpub, path) = computeXpub(master, chainHash)
+      stay replying GetXpubResponse(xpub, path)
+    }
 
     case Event(ElectrumClient.BroadcastTransaction(tx), _) => stay replying ElectrumClient.BroadcastTransactionResponse(tx, Some(Error(-1, "wallet is not connected")))
   }
@@ -263,20 +283,7 @@ object ElectrumWallet {
   // use 32 bytes seed, which will generate a 24 words mnemonic code
   val SEED_BYTES_LENGTH = 32
 
-  def props(mnemonics: Seq[String], client: ActorRef, params: WalletParameters): Props = Props(new ElectrumWallet(mnemonics, client, params))
-
-  def props(file: File, client: ActorRef, params: WalletParameters): Props = {
-    val entropy: BinaryData = (file.exists(), file.canRead(), file.isFile) match {
-      case (true, true, true) => Files.toByteArray(file)
-      case (false, _, _) =>
-        val buffer = randomBytes(SEED_BYTES_LENGTH)
-        Files.write(buffer, file)
-        buffer
-      case _ => throw new IllegalArgumentException(s"cannot create wallet:$file exist but cannot read from")
-    }
-    val mnemonics = MnemonicCode.toMnemonics(entropy)
-    Props(new ElectrumWallet(mnemonics, client, params))
-  }
+  def props(seed: BinaryData, client: ActorRef, params: WalletParameters): Props = Props(new ElectrumWallet(seed, client, params))
 
   case class WalletParameters(chainHash: BinaryData, minimumFee: Satoshi = Satoshi(2000), dustLimit: Satoshi = Satoshi(546), swipeRange: Int = 10, allowSpendUnconfirmed: Boolean = true)
 
@@ -289,11 +296,11 @@ object ElectrumWallet {
   sealed trait Request
   sealed trait Response
 
-  case object GetMnemonicCode extends RuntimeException
-  case class GetMnemonicCodeResponse(mnemonics: Seq[String]) extends Response
-
   case object GetBalance extends Request
   case class GetBalanceResponse(confirmed: Satoshi, unconfirmed: Satoshi) extends Response
+
+  case object GetXpub extends Request
+  case class GetXpubResponse(xpub: String, path: String) extends Response
 
   case object GetCurrentReceiveAddress extends Request
   case class GetCurrentReceiveAddressResponse(address: String) extends Response
@@ -302,7 +309,10 @@ object ElectrumWallet {
   case class GetDataResponse(state: Data) extends Response
 
   case class CompleteTransaction(tx: Transaction, feeRatePerKw: Long) extends Request
-  case class CompleteTransactionResponse(tx: Transaction, error: Option[Throwable]) extends Response
+  case class CompleteTransactionResponse(tx: Transaction, fee: Satoshi, error: Option[Throwable]) extends Response
+
+  case class SendAll(publicKeyScript: BinaryData, feeRatePerKw: Long) extends Request
+  case class SendAllResponse(tx: Transaction, fee: Satoshi) extends Response
 
   case class CommitTransaction(tx: Transaction) extends Request
   case class CommitTransactionResponse(tx: Transaction) extends Response
@@ -340,15 +350,18 @@ object ElectrumWallet {
     * @param key public key
     * @return the address of the p2sh-of-p2wpkh script for this key
     */
-  def segwitAddress(key: PublicKey): String = {
+  def segwitAddress(key: PublicKey, chainHash: BinaryData): String = {
     val script = Script.pay2wpkh(key)
     val hash = Crypto.hash160(Script.write(script))
-    Base58Check.encode(Base58.Prefix.ScriptAddressTestnet, hash)
+    chainHash match {
+      case Block.RegtestGenesisBlock.hash | Block.TestnetGenesisBlock.hash => Base58Check.encode(Base58.Prefix.ScriptAddressTestnet, hash)
+      case Block.LivenetGenesisBlock.hash => Base58Check.encode(Base58.Prefix.ScriptAddress, hash)
+    }
   }
 
-  def segwitAddress(key: ExtendedPrivateKey): String = segwitAddress(key.publicKey)
+  def segwitAddress(key: ExtendedPrivateKey, chainHash: BinaryData): String = segwitAddress(key.publicKey, chainHash)
 
-  def segwitAddress(key: PrivateKey): String = segwitAddress(key.publicKey)
+  def segwitAddress(key: PrivateKey, chainHash: BinaryData): String = segwitAddress(key.publicKey, chainHash)
 
   /**
     *
@@ -364,21 +377,43 @@ object ElectrumWallet {
     */
   def computeScriptHashFromPublicKey(key: PublicKey): BinaryData = Crypto.sha256(Script.write(computePublicKeyScript(key))).reverse
 
-  /**
-    * use BIP49 (and not BIP44) since we use p2sh-of-p2wpkh
-    *
-    * @param master master key
-    * @return the BIP49 account key for this master key: m/49'/1'/0'/0
-    */
-  def accountKey(master: ExtendedPrivateKey) = DeterministicWallet.derivePrivateKey(master, hardened(49) :: hardened(1) :: hardened(0) :: 0L :: Nil)
+  def accountPath(chainHash: BinaryData) : List[Long] = chainHash match {
+    case Block.RegtestGenesisBlock.hash | Block.TestnetGenesisBlock.hash => hardened(49) :: hardened(1) :: hardened(0) :: Nil
+    case Block.LivenetGenesisBlock.hash => hardened(49) :: hardened(0) :: hardened(0) :: Nil
+  }
 
   /**
     * use BIP49 (and not BIP44) since we use p2sh-of-p2wpkh
     *
     * @param master master key
-    * @return the BIP49 change key for this master key: m/49'/1'/0'/1
+    * @return the BIP49 account key for this master key: m/49'/1'/0'/0 on testnet/regtest, m/49'/0'/0'/0 on mainnet
     */
-  def changeKey(master: ExtendedPrivateKey) = DeterministicWallet.derivePrivateKey(master, hardened(49) :: hardened(1) :: hardened(0) :: 1L :: Nil)
+  def accountKey(master: ExtendedPrivateKey, chainHash: BinaryData) = DeterministicWallet.derivePrivateKey(master, accountPath(chainHash) ::: 0L :: Nil)
+
+
+  /**
+    * Compute the wallet's xpub
+    * @param master master key
+    * @param chainHash chain hash
+    * @return a (xpub, path) tuple where xpub is the encoded account public key, and path is the derivation path for the account key
+    */
+  def computeXpub(master: ExtendedPrivateKey, chainHash: BinaryData) : (String, String) = {
+    val xpub = DeterministicWallet.publicKey(DeterministicWallet.derivePrivateKey(master, accountPath(chainHash)))
+    // we use the tpub/xpub prefix instead of upub/ypub because it is more widely understood
+    val prefix = chainHash match {
+      case Block.LivenetGenesisBlock.hash => DeterministicWallet.xpub
+      case Block.RegtestGenesisBlock.hash | Block.TestnetGenesisBlock.hash => DeterministicWallet.tpub
+    }
+    (DeterministicWallet.encode(xpub, prefix), xpub.path.toString())
+  }
+
+  /**
+    * use BIP49 (and not BIP44) since we use p2sh-of-p2wpkh
+    *
+    * @param master master key
+    * @return the BIP49 change key for this master key: m/49'/1'/0'/1 on testnet/regtest, m/49'/0'/0'/1 on mainnet
+    */
+  def changeKey(master: ExtendedPrivateKey, chainHash: BinaryData) = DeterministicWallet.derivePrivateKey(master, accountPath(chainHash) ::: 1L :: Nil)
 
   def totalAmount(utxos: Seq[Utxo]): Satoshi = Satoshi(utxos.map(_.item.value).sum)
 
@@ -418,12 +453,12 @@ object ElectrumWallet {
   }
 
   /**
-    * Wallet state, which stores data returned by EletrumX servers.
+    * Wallet state, which stores data returned by ElectrumX servers.
     * Most items are indexed by script hash (i.e. by pubkey script sha256 hash).
     * Height follow ElectrumX's conventions:
     * - h > 0 means that the tx was confirmed at block #h
     * - 0 means unconfirmed, but all input are confirmed
-    * < 0 means unconfirmed, and sonme inputs are unconfirmed as well
+    * < 0 means unconfirmed, and some inputs are unconfirmed as well
     *
     * @param tip                        current blockchain tip
     * @param accountKeys                account keys
@@ -438,7 +473,8 @@ object ElectrumWallet {
     * @param pendingTransactionRequests requests pending a response from the electrum server
     * @param pendingTransactions        transactions received but not yet connected to their parents
     */
-  case class Data(tip: ElectrumClient.Header,
+  case class Data(chainHash: BinaryData,
+                  tip: ElectrumClient.Header,
                   accountKeys: Vector[ExtendedPrivateKey],
                   changeKeys: Vector[ExtendedPrivateKey],
                   status: Map[BinaryData, String],
@@ -487,7 +523,7 @@ object ElectrumWallet {
       accountKeys.head
     }
 
-    def currentReceiveAddress = segwitAddress(currentReceiveKey)
+    def currentReceiveAddress = segwitAddress(currentReceiveKey, chainHash)
 
     /**
       *
@@ -502,7 +538,7 @@ object ElectrumWallet {
       changeKeys.head
     }
 
-    def currentChangeAddress = segwitAddress(currentChangeKey)
+    def currentChangeAddress = segwitAddress(currentChangeKey, chainHash)
 
     def isMine(txIn: TxIn): Boolean = extractPubKeySpentFrom(txIn).exists(pub => publicScriptMap.contains(Script.write(computePublicKeyScript(pub))))
 
@@ -586,6 +622,7 @@ object ElectrumWallet {
           val confirmedBalance = confirmedReceived.map(_.amount).sum - confirmedSpents.map(_.amount).sum
           val unconfirmedBalance = unconfirmedReceived.map(_.amount).sum - unconfirmedSpents.map(_.amount).sum
 
+          logger.debug(s"scriptHash=$scriptHash confirmedBalance=$confirmedBalance unconfirmedBalance=$unconfirmedBalance)")
           (confirmedBalance, unconfirmedBalance)
       }
     }
@@ -596,7 +633,11 @@ object ElectrumWallet {
       *         be up-to-date if we have not received all data we've asked for yet.
       */
     lazy val balance: (Satoshi, Satoshi) = {
-      (accountKeyMap.keys ++ changeKeyMap.keys).map(scriptHash => balance(scriptHash)).foldLeft((Satoshi(0), Satoshi(0))) {
+      // `.toList` is very important here: keys are returned in a Set-like structure, without the .toList we map
+      // to another set-like structure that will remove duplicates, so if we have several script hashes with exactly the
+      // same balance we don't return the correct aggregated balance
+      val balances = (accountKeyMap.keys ++ changeKeyMap.keys).toList.map(scriptHash => balance(scriptHash))
+      balances.foldLeft((Satoshi(0), Satoshi(0))) {
         case ((confirmed, unconfirmed), (confirmed1, unconfirmed1)) => (confirmed + confirmed1, unconfirmed + unconfirmed1)
       }
     }
@@ -674,12 +715,12 @@ object ElectrumWallet {
       * @param feeRatePerKw fee rate per kiloweight
       * @param minimumFee   minimum fee
       * @param dustLimit    dust limit
-      * @return a (state, tx) tuple where state has been updated and tx is a complete,
+      * @return a (state, tx, fee) tuple where state has been updated and tx is a complete,
       *         fully signed transaction that can be broadcast.
       *         our utxos spent by this tx are locked and won't be available for spending
       *         until the tx has been cancelled. If the tx is committed, they will be removed
       */
-    def completeTransaction(tx: Transaction, feeRatePerKw: Long, minimumFee: Satoshi, dustLimit: Satoshi, allowSpendUnconfirmed: Boolean): (Data, Transaction) = {
+    def completeTransaction(tx: Transaction, feeRatePerKw: Long, minimumFee: Satoshi, dustLimit: Satoshi, allowSpendUnconfirmed: Boolean): (Data, Transaction, Satoshi) = {
       require(tx.txIn.isEmpty, "cannot complete a tx that already has inputs")
       require(feeRatePerKw >= 0, "fee rate cannot be negative")
       val amount = tx.txOut.map(_.amount).sum
@@ -706,19 +747,25 @@ object ElectrumWallet {
       }
 
       // sign our tx
-      val tx3 = tx2.copy(txIn = tx2.txIn.zipWithIndex.map { case (txIn, i) =>
-        val key = utxos(i).key
-        val sig = Transaction.signInput(tx2, i, Script.pay2pkh(key.publicKey), SIGHASH_ALL, Satoshi(utxos(i).item.value), SigVersion.SIGVERSION_WITNESS_V0, key.privateKey)
-        val sigScript = Script.write(OP_PUSHDATA(Script.write(Script.pay2wpkh(key.publicKey))) :: Nil)
-        val witness = ScriptWitness(sig :: key.publicKey.toBin :: Nil)
-        txIn.copy(signatureScript = sigScript, witness = witness)
-      })
+      val tx3 = signTransaction(tx2)
       //Transaction.correctlySpends(tx3, utxos.map(utxo => utxo.outPoint -> TxOut(Satoshi(utxo.item.value), computePublicKeyScript(utxo.key.publicKey))).toMap, ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
 
       // and add the completed tx to the lokcs
       val data1 = this.copy(locks = this.locks + tx3)
+      val fee3 = spent - tx3.txOut.map(_.amount).sum
 
-      (data1, tx3)
+      (data1, tx3, fee3)
+    }
+
+    def signTransaction(tx: Transaction) : Transaction = {
+      tx.copy(txIn = tx.txIn.zipWithIndex.map { case (txIn, i) =>
+        val utxo = utxos.find(_.outPoint == txIn.outPoint).getOrElse(throw new RuntimeException(s"cannot sign input that spends from ${txIn.outPoint}"))
+        val key = utxo.key
+        val sig = Transaction.signInput(tx, i, Script.pay2pkh(key.publicKey), SIGHASH_ALL, Satoshi(utxo.item.value), SigVersion.SIGVERSION_WITNESS_V0, key.privateKey)
+        val sigScript = Script.write(OP_PUSHDATA(Script.write(Script.pay2wpkh(key.publicKey))) :: Nil)
+        val witness = ScriptWitness(sig :: key.publicKey.toBin :: Nil)
+        txIn.copy(signatureScript = sigScript, witness = witness)
+      })
     }
 
     /**
@@ -752,11 +799,33 @@ object ElectrumWallet {
         }
       this.copy(locks = this.locks - tx, transactions = this.transactions + (tx.txid -> tx), heights = this.heights + (tx.txid -> 0L), history = history1)
     }
+
+    /**
+      * spend all our balance, including unconfirmed utxos and locked utxos (i.e utxos
+      * that are used in funding transactions that have not been published yet
+      * @param publicKeyScript script to send all our funds to
+      * @param feeRatePerKw fee rate in satoshi per kiloweight
+      * @return a (tx, fee) tuple, tx is a signed transaction that spends all our balance and
+      *         fee is the associated bitcoin network fee
+      */
+    def spendAll(publicKeyScript: BinaryData, feeRatePerKw: Long) : (Transaction, Satoshi) = {
+      // use confirmed and unconfirmed balance
+      val amount = balance._1 + balance._2
+      val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(amount, publicKeyScript) :: Nil, lockTime = 0)
+      // use all uxtos, including locked ones
+      val tx1 = addUtxosWithDummySig(tx, utxos)
+      val fee = Transactions.weight2fee(feeRatePerKw, tx1.weight())
+      val tx2 = tx1.copy(txOut = TxOut(amount - fee, publicKeyScript) :: Nil)
+      val tx3 = signTransaction(tx2)
+      (tx3, fee)
+    }
+
+    def spendAll(publicKeyScript: Seq[ScriptElt], feeRatePerKw: Long) : (Transaction, Satoshi) = spendAll(Script.write(publicKeyScript), feeRatePerKw)
   }
 
   object Data {
     def apply(params: ElectrumWallet.WalletParameters, tip: ElectrumClient.Header, accountKeys: Vector[ExtendedPrivateKey], changeKeys: Vector[ExtendedPrivateKey]): Data
-    = Data(tip, accountKeys, changeKeys, Map(), Map(), Map(), Map(), Set(), Set(), Set(), Seq(), None)
+    = Data(params.chainHash, tip, accountKeys, changeKeys, Map(), Map(), Map(), Map(), Set(), Set(), Set(), Seq(), None)
   }
 
   case class InfiniteLoopException(data: Data, tx: Transaction) extends Exception

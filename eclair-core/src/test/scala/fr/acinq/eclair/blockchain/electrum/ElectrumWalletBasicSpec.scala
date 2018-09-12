@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.blockchain.electrum
 
 import fr.acinq.bitcoin.Crypto.PrivateKey
@@ -22,10 +38,10 @@ class ElectrumWalletBasicSpec extends FunSuite {
   val minimumFee = Satoshi(2000)
 
   val master = DeterministicWallet.generate(BinaryData("01" * 32))
-  val accountMaster = accountKey(master)
+  val accountMaster = accountKey(master, Block.RegtestGenesisBlock.hash)
   val accountIndex = 0
 
-  val changeMaster = changeKey(master)
+  val changeMaster = changeKey(master, Block.RegtestGenesisBlock.hash)
   val changeIndex = 0
 
   val firstAccountKeys = (0 until 10).map(i => derivePrivateKey(accountMaster, i)).toVector
@@ -62,7 +78,7 @@ class ElectrumWalletBasicSpec extends FunSuite {
   test("compute addresses") {
     val priv = PrivateKey.fromBase58("cRumXueoZHjhGXrZWeFoEBkeDHu2m8dW5qtFBCqSAt4LDR2Hnd8Q", Base58.Prefix.SecretKeyTestnet)
     assert(Base58Check.encode(Base58.Prefix.PubkeyAddressTestnet, priv.publicKey.hash160) == "ms93boMGZZjvjciujPJgDAqeR86EKBf9MC")
-    assert(segwitAddress(priv) == "2MscvqgGXMTYJNAY3owdUtgWJaxPUjH38Cx")
+    assert(segwitAddress(priv, Block.RegtestGenesisBlock.hash) == "2MscvqgGXMTYJNAY3owdUtgWJaxPUjH38Cx")
   }
 
   test("implement BIP49") {
@@ -70,9 +86,9 @@ class ElectrumWalletBasicSpec extends FunSuite {
     val seed = MnemonicCode.toSeed(mnemonics, "")
     val master = DeterministicWallet.generate(seed)
 
-    val accountMaster = accountKey(master)
+    val accountMaster = accountKey(master, Block.RegtestGenesisBlock.hash)
     val firstKey = derivePrivateKey(accountMaster, 0)
-    assert(segwitAddress(firstKey) === "2MxJejujQJRRJdbfTKNQQ94YCnxJwRaE7yo")
+    assert(segwitAddress(firstKey, Block.RegtestGenesisBlock.hash) === "2MxJejujQJRRJdbfTKNQQ94YCnxJwRaE7yo")
   }
 
   test("complete transactions (enough funds)") {
@@ -81,8 +97,9 @@ class ElectrumWalletBasicSpec extends FunSuite {
 
     val pub = PrivateKey(BinaryData("01" * 32), compressed = true).publicKey
     val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(0.5 btc, Script.pay2pkh(pub)) :: Nil, lockTime = 0)
-    val (state2, tx1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, false)
+    val (state2, tx1, fee1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, false)
     val Some((_, _, Some(fee))) = state2.computeTransactionDelta(tx1)
+    assert(fee == fee1)
     val actualFeeRate = Transactions.fee2rate(fee, tx1.weight())
 
     val state3 = state2.cancelTransaction(tx1)
@@ -105,9 +122,10 @@ class ElectrumWalletBasicSpec extends FunSuite {
   test("compute the effect of tx") {
     val state1 = addFunds(state, state.accountKeys.head, 1 btc)
     val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(0.5 btc, Script.pay2pkh(state1.accountKeys(0).publicKey)) :: Nil, lockTime = 0)
-    val (state2, tx1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, false)
+    val (state2, tx1, fee1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, false)
 
     val Some((received, sent, Some(fee))) = state1.computeTransactionDelta(tx1)
+    assert(fee == fee1)
     assert(sent - received - fee == btc2satoshi(0.5 btc))
   }
 
@@ -116,34 +134,52 @@ class ElectrumWalletBasicSpec extends FunSuite {
 
     {
       val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(Satoshi(5000000), Script.pay2pkh(state1.accountKeys(0).publicKey)) :: Nil, lockTime = 0)
-      val (state3, tx1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, true)
+      val (state3, tx1, fee1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, true)
       val Some((_, _, Some(fee))) = state3.computeTransactionDelta(tx1)
+      assert(fee == fee1)
       val actualFeeRate = Transactions.fee2rate(fee, tx1.weight())
       assert(isFeerateOk(actualFeeRate, feeRatePerKw))
     }
     {
       val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(Satoshi(5000000) - dustLimit, Script.pay2pkh(state1.accountKeys(0).publicKey)) :: Nil, lockTime = 0)
-      val (state3, tx1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, true)
+      val (state3, tx1, fee1) = state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, true)
       val Some((_, _, Some(fee))) = state3.computeTransactionDelta(tx1)
+      assert(fee == fee1)
       val actualFeeRate = Transactions.fee2rate(fee, tx1.weight())
       assert(isFeerateOk(actualFeeRate, feeRatePerKw))
     }
     {
       // with a huge fee rate that will force us to use an additional input when we complete our tx
       val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(Satoshi(3000000), Script.pay2pkh(state1.accountKeys(0).publicKey)) :: Nil, lockTime = 0)
-      val (state3, tx1) = state1.completeTransaction(tx, 100 * feeRatePerKw, minimumFee, dustLimit, true)
+      val (state3, tx1, fee1) = state1.completeTransaction(tx, 100 * feeRatePerKw, minimumFee, dustLimit, true)
       val Some((_, _, Some(fee))) = state3.computeTransactionDelta(tx1)
+      assert(fee == fee1)
       val actualFeeRate = Transactions.fee2rate(fee, tx1.weight())
       assert(isFeerateOk(actualFeeRate, 100 * feeRatePerKw))
     }
     {
       // with a tiny fee rate that will force us to use an additional input when we complete our tx
       val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(Btc(0.09), Script.pay2pkh(state1.accountKeys(0).publicKey)) :: Nil, lockTime = 0)
-      val (state3, tx1) = state1.completeTransaction(tx, feeRatePerKw / 10, minimumFee / 10, dustLimit, true)
+      val (state3, tx1, fee1) = state1.completeTransaction(tx, feeRatePerKw / 10, minimumFee / 10, dustLimit, true)
       val Some((_, _, Some(fee))) = state3.computeTransactionDelta(tx1)
+      assert(fee == fee1)
       val actualFeeRate = Transactions.fee2rate(fee, tx1.weight())
       assert(isFeerateOk(actualFeeRate, feeRatePerKw / 10))
     }
+  }
+
+  test("spend all our balance") {
+    val state1 = addFunds(state, state.accountKeys(0), 1 btc)
+    val state2 = addFunds(state1, state1.accountKeys(1), 2 btc)
+    val state3 = addFunds(state2, state2.changeKeys(0), 0.5 btc)
+    assert(state3.utxos.length == 3)
+    assert(state3.balance == (Satoshi(350000000),Satoshi(0)))
+
+    val (tx, fee) = state3.spendAll(Script.pay2wpkh(BinaryData("01" * 20)), feeRatePerKw)
+    val Some((received, sent, Some(fee1))) = state3.computeTransactionDelta(tx)
+    assert(received == Satoshi(0))
+    assert(fee == fee1)
+    assert(tx.txOut.map(_.amount).sum + fee == state3.balance._1 + state3.balance._2)
   }
 
   test("fuzzy test") {
@@ -159,7 +195,7 @@ class ElectrumWalletBasicSpec extends FunSuite {
         val amount = dustLimit + Satoshi(random.nextInt(10000000))
         val tx = Transaction(version = 2, txIn = Nil, txOut = TxOut(amount, Script.pay2pkh(state1.accountKeys(0).publicKey)) :: Nil, lockTime = 0)
         Try(state1.completeTransaction(tx, feeRatePerKw, minimumFee, dustLimit, true)) match {
-          case Success((state2, tx1)) => ()
+          case Success((state2, tx1, fee1)) => ()
           case Failure(cause) if cause.getMessage != null && cause.getMessage.contains("insufficient funds") => ()
           case Failure(cause) => println(s"unexpected $cause")
         }

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.gui.utils
 
 import javafx.scene.control.Label
@@ -8,10 +24,7 @@ import scala.util.matching.Regex
   * Created by DPA on 27/09/2016.
   */
 object GUIValidators {
-  val hostRegex = """([a-fA-F0-9]{66})@([a-zA-Z0-9:\[\]%\/\.\-_]+)(:([0-9]+))?""".r
-  val amountRegex = """\d+""".r
   val amountDecRegex = """(\d+)|(\d*\.[\d]{1,})""".r
-  val hexRegex = """[0-9a-fA-F]+""".r
 
   /**
     * Validate a field against a regex. If field does not match the regex, validatorLabel is shown.
@@ -33,7 +46,7 @@ object GUIValidators {
   /**
     * Displays a label with an error message.
     *
-    * @param errorLabel     JFX label containing an error messsage
+    * @param errorLabel     JFX label containing an error message
     * @param validCondition if true the label is hidden, else it is shown
     * @return true if field is valid, false otherwise
     */

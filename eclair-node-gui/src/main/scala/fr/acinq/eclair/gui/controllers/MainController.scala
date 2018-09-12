@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.gui.controllers
 
 import java.text.NumberFormat
@@ -25,17 +41,20 @@ import javafx.stage._
 import javafx.util.{Callback, Duration}
 
 import com.google.common.net.HostAndPort
-import fr.acinq.bitcoin.MilliSatoshi
-import fr.acinq.eclair.NodeParams.{BITCOIND, BITCOINJ, ELECTRUM}
-import fr.acinq.eclair.Setup
-import fr.acinq.eclair.gui.{FxApp, Handlers}
+import fr.acinq.bitcoin.{MilliSatoshi, Satoshi}
+import fr.acinq.eclair.NodeParams.{BITCOIND, ELECTRUM}
 import fr.acinq.eclair.gui.stages._
-import fr.acinq.eclair.gui.utils.{CoinUtils, ContextMenuUtils, CopyAction}
+import fr.acinq.eclair.gui.utils.{ContextMenuUtils, CopyAction}
+import fr.acinq.eclair.gui.{FxApp, Handlers}
 import fr.acinq.eclair.payment.{PaymentEvent, PaymentReceived, PaymentRelayed, PaymentSent}
 import fr.acinq.eclair.wire.{ChannelAnnouncement, NodeAnnouncement}
+import fr.acinq.eclair.{CoinUtils, Setup}
 import grizzled.slf4j.Logging
 
-case class ChannelInfo(announcement: ChannelAnnouncement, var isNode1Enabled: Option[Boolean], var isNode2Enabled: Option[Boolean])
+case class ChannelInfo(announcement: ChannelAnnouncement,
+                       var feeBaseMsatNode1_opt: Option[Long], var feeBaseMsatNode2_opt: Option[Long],
+                       var feeProportionalMillionthsNode1_opt: Option[Long], var feeProportionalMillionthsNode2_opt: Option[Long],
+                       capacity: Satoshi, var isNode1Enabled: Option[Boolean], var isNode2Enabled: Option[Boolean])
 
 sealed trait Record {
   val event: PaymentEvent
@@ -92,6 +111,12 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
   @FXML var networkChannelsNode1Column: TableColumn[ChannelInfo, String] = _
   @FXML var networkChannelsDirectionsColumn: TableColumn[ChannelInfo, ChannelInfo] = _
   @FXML var networkChannelsNode2Column: TableColumn[ChannelInfo, String] = _
+  @FXML var networkChannelsFeeBaseMsatNode1Column: TableColumn[ChannelInfo, String] = _
+  @FXML var networkChannelsFeeProportionalMillionthsNode1Column: TableColumn[ChannelInfo, String] = _
+  @FXML var networkChannelsFeeBaseMsatNode2Column: TableColumn[ChannelInfo, String] = _
+  @FXML var networkChannelsFeeProportionalMillionthsNode2Column: TableColumn[ChannelInfo, String] = _
+
+  @FXML var networkChannelsCapacityColumn: TableColumn[ChannelInfo, String] = _
 
   // payment sent table
   val paymentSentList = FXCollections.observableArrayList[PaymentSentRecord]()
@@ -170,7 +195,7 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
     })
     networkNodesIPColumn.setCellValueFactory(new Callback[CellDataFeatures[NodeAnnouncement, String], ObservableValue[String]]() {
       def call(pn: CellDataFeatures[NodeAnnouncement, String]) = {
-        val address = pn.getValue.addresses.map(a => HostAndPort.fromParts(a.getHostString, a.getPort)).mkString(",")
+        val address = pn.getValue.socketAddresses.map(a => HostAndPort.fromParts(a.getHostString, a.getPort)).mkString(",")
         new SimpleStringProperty(address)
       }
     })
@@ -200,7 +225,7 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
       override def onChanged(c: Change[_ <: ChannelInfo]) = updateTabHeader(networkChannelsTab, "All Channels", networkChannelsList)
     })
     networkChannelsIdColumn.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
-      def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(pc.getValue.announcement.shortChannelId.toHexString)
+      def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(pc.getValue.announcement.shortChannelId.toString)
     })
     networkChannelsNode1Column.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
       def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(pc.getValue.announcement.nodeId1.toString)
@@ -208,6 +233,29 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
     networkChannelsNode2Column.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
       def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(pc.getValue.announcement.nodeId2.toString)
     })
+    networkChannelsFeeBaseMsatNode1Column.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
+      def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(
+        pc.getValue.feeBaseMsatNode1_opt.map(f => CoinUtils.formatAmountInUnit(MilliSatoshi(f), FxApp.getUnit, withUnit = true)).getOrElse("?"))
+    })
+    networkChannelsFeeBaseMsatNode2Column.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
+      def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(
+        pc.getValue.feeBaseMsatNode2_opt.map(f => CoinUtils.formatAmountInUnit(MilliSatoshi(f), FxApp.getUnit, withUnit = true)).getOrElse("?"))
+//        CoinUtils.formatAmountInUnit(MilliSatoshi(pc.getValue.feeBaseMsatNode2), FxApp.getUnit, withUnit = true))
+    })
+    // feeProportionalMillionths is fee per satoshi in millionths of a satoshi
+    networkChannelsFeeProportionalMillionthsNode1Column.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
+      def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(
+        pc.getValue.feeProportionalMillionthsNode1_opt.map(f => s"${CoinUtils.COIN_FORMAT.format(f.toDouble / 1000000 * 100)}%").getOrElse("?"))
+    })
+    networkChannelsFeeProportionalMillionthsNode2Column.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
+      def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(
+        pc.getValue.feeProportionalMillionthsNode2_opt.map(f => s"${CoinUtils.COIN_FORMAT.format(f.toDouble / 1000000 * 100)}%").getOrElse("?"))
+    })
+    networkChannelsCapacityColumn.setCellValueFactory(new Callback[CellDataFeatures[ChannelInfo, String], ObservableValue[String]]() {
+      def call(pc: CellDataFeatures[ChannelInfo, String]) = new SimpleStringProperty(
+        CoinUtils.formatAmountInUnit(pc.getValue.capacity, FxApp.getUnit, withUnit = true))
+    })
+
     networkChannelsTable.setRowFactory(new Callback[TableView[ChannelInfo], TableRow[ChannelInfo]]() {
       override def call(table: TableView[ChannelInfo]): TableRow[ChannelInfo] = setupPeerChannelContextMenu()
     })
@@ -228,19 +276,19 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
               setText(null)
             } else {
               item match {
-                case ChannelInfo(_, Some(true), Some(true)) =>
+                case ChannelInfo(_, _, _, _, _, _, Some(true), Some(true)) =>
                   directionImage.setImage(new Image("/gui/commons/images/in-out-11.png", false))
                   setTooltip(new Tooltip("Both Node 1 and Node 2 are enabled"))
                   setGraphic(directionImage)
-                case ChannelInfo(_, Some(true), Some(false)) =>
+                case ChannelInfo(_, _, _, _, _, _, Some(true), Some(false)) =>
                   directionImage.setImage(new Image("/gui/commons/images/in-out-10.png", false))
                   setTooltip(new Tooltip("Node 1 is enabled, but not Node 2"))
                   setGraphic(directionImage)
-                case ChannelInfo(_, Some(false), Some(true)) =>
+                case ChannelInfo(_, _, _, _, _, _, Some(false), Some(true)) =>
                   directionImage.setImage(new Image("/gui/commons/images/in-out-01.png", false))
                   setTooltip(new Tooltip("Node 2 is enabled, but not Node 1"))
                   setGraphic(directionImage)
-                case ChannelInfo(_, Some(false), Some(false)) =>
+                case ChannelInfo(_, _, _, _, _, _, Some(false), Some(false)) =>
                   directionImage.setImage(new Image("/gui/commons/images/in-out-00.png", false))
                   setTooltip(new Tooltip("Neither Node 1 nor Node 2 is enabled"))
                   setGraphic(directionImage)
@@ -303,7 +351,7 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
 
   def initInfoFields(setup: Setup) = {
     // init status bar
-    labelNodeId.setText(s"${setup.nodeParams.privateKey.publicKey}")
+    labelNodeId.setText(s"${setup.nodeParams.nodeId}")
     labelAlias.setText(s"${setup.nodeParams.alias}")
     rectRGB.setFill(Color.web(setup.nodeParams.color.toString))
     labelApi.setText(s"${setup.config.getInt("api.port")}")
@@ -312,17 +360,16 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
     val wallet = setup.nodeParams.watcherType match {
       case BITCOIND => "Bitcoin-core"
       case ELECTRUM => "Electrum"
-      case BITCOINJ => "BitcoinJ"
     }
     bitcoinWallet.setText(wallet)
     bitcoinChain.setText(s"${setup.chain.toUpperCase()}")
     bitcoinChain.getStyleClass.add(setup.chain)
 
     val nodeURI_opt = setup.nodeParams.publicAddresses.headOption.map(address => {
-      s"${setup.nodeParams.privateKey.publicKey}@${HostAndPort.fromParts(address.getHostString, address.getPort)}"
+      s"${setup.nodeParams.nodeId}@${HostAndPort.fromParts(address.getHostString, address.getPort)}"
     })
 
-    contextMenu = ContextMenuUtils.buildCopyContext(List(CopyAction("Copy Pubkey", setup.nodeParams.privateKey.publicKey.toString())))
+    contextMenu = ContextMenuUtils.buildCopyContext(List(CopyAction("Copy Pubkey", setup.nodeParams.nodeId.toString())))
     nodeURI_opt.map(nodeURI => {
       val nodeInfoAction = new MenuItem("Node Info")
       nodeInfoAction.setOnAction(new EventHandler[ActionEvent] {
@@ -339,8 +386,8 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
   }
 
   private def updateTabHeader(tab: Tab, prefix: String, items: ObservableList[_]) = Platform.runLater(new Runnable() {
-      override def run(): Unit = tab.setText(s"$prefix (${items.size})")
-    })
+    override def run(): Unit = tab.setText(s"$prefix (${items.size})")
+  })
 
   private def paymentHashCellValueFactory[T <: Record] = new Callback[CellDataFeatures[T, String], ObservableValue[String]]() {
     def call(p: CellDataFeatures[T, String]) = new SimpleStringProperty(p.getValue.event.paymentHash.toString)
@@ -410,8 +457,10 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
     copyURI.setOnAction(new EventHandler[ActionEvent] {
       override def handle(event: ActionEvent): Unit = Option(row.getItem) match {
         case Some(pn) => ContextMenuUtils.copyToClipboard(
-          if (pn.addresses.nonEmpty) s"${pn.nodeId.toString}@${HostAndPort.fromParts(pn.addresses.head.getHostString, pn.addresses.head.getPort)}"
-          else "no URI Known")
+          pn.socketAddresses.headOption match {
+            case Some(firstAddress) => s"${pn.nodeId.toString}@${HostAndPort.fromParts(firstAddress.getHostString, firstAddress.getPort)}"
+            case None => "no URI Known"
+          })
         case None =>
       }
     })
@@ -431,7 +480,7 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
     val copyChannelId = new MenuItem("Copy Channel Id")
     copyChannelId.setOnAction(new EventHandler[ActionEvent] {
       override def handle(event: ActionEvent): Unit = Option(row.getItem) match {
-        case Some(pc) => ContextMenuUtils.copyToClipboard(pc.announcement.shortChannelId.toHexString)
+        case Some(pc) => ContextMenuUtils.copyToClipboard(pc.announcement.shortChannelId.toString)
         case None =>
       }
     })
@@ -454,7 +503,7 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
     row
   }
 
-  @FXML def handleExportDot = {
+  @FXML def handleExportDot() = {
     val fileChooser = new FileChooser
     fileChooser.setTitle("Save as")
     fileChooser.getExtensionFilters.addAll(new ExtensionFilter("DOT File (*.dot)", "*.dot"))
@@ -462,21 +511,21 @@ class MainController(val handlers: Handlers, val hostServices: HostServices) ext
     if (file != null) handlers.exportToDot(file)
   }
 
-  @FXML def handleOpenChannel = {
+  @FXML def handleOpenChannel() = {
     val openChannelStage = new OpenChannelStage(handlers)
     openChannelStage.initOwner(getWindow.orNull)
     positionAtCenter(openChannelStage)
     openChannelStage.show()
   }
 
-  @FXML def handleSendPayment = {
+  @FXML def handleSendPayment() = {
     val sendPaymentStage = new SendPaymentStage(handlers)
     sendPaymentStage.initOwner(getWindow.orNull)
     positionAtCenter(sendPaymentStage)
     sendPaymentStage.show()
   }
 
-  @FXML def handleReceivePayment = {
+  @FXML def handleReceivePayment() = {
     val receiveStage = new ReceivePaymentStage(handlers)
     receiveStage.initOwner(getWindow.orNull)
     positionAtCenter(receiveStage)

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018 ACINQ SAS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package fr.acinq.eclair.blockchain.bitcoind.zmq
 
 import akka.actor.{Actor, ActorLogging}
@@ -6,7 +22,7 @@ import fr.acinq.eclair.blockchain.{NewBlock, NewTransaction}
 import org.zeromq.ZMQ.Event
 import org.zeromq.{ZContext, ZMQ, ZMsg}
 
-import scala.concurrent.Promise
+import scala.concurrent.{ExecutionContext, Promise}
 import scala.concurrent.duration._
 import scala.util.Try
 
@@ -28,7 +44,7 @@ class ZMQActor(address: String, connected: Option[Promise[Boolean]] = None) exte
   val monitor = ctx.createSocket(ZMQ.PAIR)
   monitor.connect("inproc://events")
 
-  import scala.concurrent.ExecutionContext.Implicits.global
+  implicit val ec: ExecutionContext = context.system.dispatcher
 
   // we check messages in a non-blocking manner with an interval, making sure to retrieve all messages before waiting again
   def checkEvent: Unit = Option(Event.recv(monitor, ZMQ.DONTWAIT)) match {
@@ -66,11 +82,11 @@ class ZMQActor(address: String, connected: Option[Promise[Boolean]] = None) exte
     case msg: ZMsg => msg.popString() match {
       case "rawblock" =>
         val block = Block.read(msg.pop().getData)
-        log.debug(s"received blockid=${block.blockId}")
+        log.debug("received blockid={}", block.blockId)
         context.system.eventStream.publish(NewBlock(block))
       case "rawtx" =>
         val tx = Transaction.read(msg.pop().getData)
-        log.debug(s"received txid=${tx.txid}")
+        log.debug("received txid={}", tx.txid)
         context.system.eventStream.publish(NewTransaction(tx))
       case topic => log.warning(s"unexpected topic=$topic")
     }
