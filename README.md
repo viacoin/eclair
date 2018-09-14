@@ -202,7 +202,7 @@ addresstype=p2sh-segwit
 
 ```
 eclair.chain=mainnet
-eclair.viacoind.rpcport=8332
+eclair.viacoind.rpcport=5222
 eclair.viacoind.rpcuser=<your-bitcoin-core-rpc-user-here>
 eclair.viacoind.rpcpassword=<your-bitcoin-core-rpc-passsword-here>
 ```
