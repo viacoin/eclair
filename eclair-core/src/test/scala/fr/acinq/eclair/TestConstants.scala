@@ -73,7 +73,7 @@ object TestConstants {
       auditDb = new SqliteAuditDb(sqlite),
       routerBroadcastInterval = 60 seconds,
       pingInterval = 30 seconds,
-      maxFeerateMismatch = 1.5,
+      maxFeerateMismatch = 2.0,
       updateFeeMinDiffRatio = 0.1,
       autoReconnect = false,
       chainHash = Block.RegtestGenesisBlock.hash,
