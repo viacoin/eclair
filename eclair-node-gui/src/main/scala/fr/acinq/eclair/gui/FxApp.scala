@@ -89,7 +89,7 @@ class FxApp extends Application with Logging {
           val unitConf = setup.config.getString("gui.unit")
           FxApp.unit = Try(CoinUtils.getUnitFromString(unitConf)) match {
             case Failure(_) =>
-              logger.warn(s"$unitConf is not a valid gui unit, must be msat, sat, mbtc or btc. Defaulting to btc.")
+              logger.warn(s"$unitConf is not a valid gui unit, must be msat, sat, mvia or via. Defaulting to via.")
               BtcUnit
             case Success(u) => u
           }

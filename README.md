@@ -97,7 +97,7 @@ name                         | description                                      
  eclair.bitcoind.rpcuser     | Viacoin Core RPC user                                                                 | foo
  eclair.bitcoind.rpcpassword | Viacoin Core RPC password                                                             | bar
  eclair.bitcoind.zmq         | Viacoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
- eclair.gui.unit             | Unit in which amounts are displayed (possible values: msat, sat, mbtc, btc)           | btc 
+ eclair.gui.unit             | Unit in which amounts are displayed (possible values: msat, sat, mvia, via)           | via 
 
 Quotes are not required unless the value contains special characters. Full syntax guide [here](https://github.com/lightbend/config/blob/master/HOCON.md).
 
