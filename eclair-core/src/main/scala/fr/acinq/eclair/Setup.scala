@@ -115,7 +115,7 @@ class Setup(datadir: File,
       if (chainHash != Block.RegtestGenesisBlock.hash) {
         assert(unspentAddresses.forall(address => !isPay2PubkeyHash(address)), "Make sure that all your UTXOS are segwit UTXOS and not p2pkh (check out our README for more details)")
       }
-      assert(progress > 0.999, s"viacoind should be synchronized (progress=$progress")
+      assert(progress > 0.8, s"viacoind should be synchronized (progress=$progress")
       assert(headers - blocks <= 1, s"viacoind should be synchronized (headers=$headers blocks=$blocks")
       // TODO: add a check on bitcoin version?
 
