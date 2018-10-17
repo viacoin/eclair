@@ -227,6 +227,11 @@
 
     <repositories>
         <repository>
+            <id>fr.acinq</id>
+            <url>https://github.com/viacoin/viacoin-lib-repo/raw/master/</url>
+        </repository>
+
+        <repository>
             <id>sonatype snapshots</id>
             <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
         </repository>
