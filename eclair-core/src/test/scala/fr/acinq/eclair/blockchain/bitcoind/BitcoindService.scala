@@ -41,7 +41,7 @@ trait BitcoindService extends Logging {
   val INTEGRATION_TMP_DIR = s"${System.getProperty("buildDirectory")}/integration-${UUID.randomUUID().toString}"
   logger.info(s"using tmp dir: $INTEGRATION_TMP_DIR")
 
-  val PATH_BITCOIND = new File(System.getProperty("buildDirectory"), "bitcoin-0.16.3/bin/bitcoind")
+  val PATH_BITCOIND = new File(System.getProperty("buildDirectory"), "viacoin-0.15.2/bin/viacoind")
   val PATH_BITCOIND_DATADIR = new File(INTEGRATION_TMP_DIR, "datadir-bitcoin")
 
   var bitcoind: Process = null
@@ -52,8 +52,8 @@ trait BitcoindService extends Logging {
 
   def startBitcoind(): Unit = {
     Files.createDirectories(PATH_BITCOIND_DATADIR.toPath)
-    if (!Files.exists(new File(PATH_BITCOIND_DATADIR.toString, "bitcoin.conf").toPath)) {
-      Files.copy(classOf[IntegrationSpec].getResourceAsStream("/integration/bitcoin.conf"), new File(PATH_BITCOIND_DATADIR.toString, "bitcoin.conf").toPath, StandardCopyOption.REPLACE_EXISTING)
+    if (!Files.exists(new File(PATH_BITCOIND_DATADIR.toString, "viacoin.conf").toPath)) {
+      Files.copy(classOf[IntegrationSpec].getResourceAsStream("/integration/viacoin.conf"), new File(PATH_BITCOIND_DATADIR.toString, "viacoin.conf").toPath, StandardCopyOption.REPLACE_EXISTING)
     }
 
     bitcoind = s"$PATH_BITCOIND -datadir=$PATH_BITCOIND_DATADIR".run()
@@ -77,7 +77,7 @@ trait BitcoindService extends Logging {
 
   def waitForBitcoindReady(): Unit = {
     val sender = TestProbe()
-    logger.info(s"waiting for bitcoind to initialize...")
+    logger.info(s"waiting for viacoind to initialize...")
     awaitCond({
       sender.send(bitcoincli, BitcoinReq("getnetworkinfo"))
       sender.receiveOne(5 second).isInstanceOf[JValue]
