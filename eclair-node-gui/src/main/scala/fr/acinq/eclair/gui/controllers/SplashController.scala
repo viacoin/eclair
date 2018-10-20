@@ -54,7 +54,7 @@ class SplashController(hostServices: HostServices) extends Logging {
 
   @FXML def closeAndKill = System.exit(0)
 
-  @FXML def openGithubPage = hostServices.showDocument("https://github.com/ACINQ/eclair/blob/master/README.md")
+  @FXML def openGithubPage = hostServices.showDocument("https://github.com/viacoin/eclair/blob/master/README.md")
 
   def addLog(message: String) = {
     val l = new Label
