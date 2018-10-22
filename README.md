@@ -14,7 +14,7 @@ This software follows the [Lightning Network Specifications (BOLTs)](https://git
  
  :rotating_light: If you intend to run Eclair on mainnet:
  - Keep in mind that it is beta-quality software and **don't put too much money** in it
- - Eclair's JSON-RPC API should **NOT** be accessible from the outside world (similarly to Bitcoin Core API)
+ - Eclair's JSON-RPC API should **NOT** be accessible from the outside world (similarly to Viacoin Core API)
  - Specific [configuration instructions for mainnet](#mainnet-usage) are provided below (by default Eclair runs on testnet)
  
 ---
@@ -94,9 +94,9 @@ name                         | description                                      
  eclair.api.enabled          | Enable/disable the API                                                                | false. By default the API is disabled. If you want to enable it, you must set a password.
  eclair.api.port             | API HTTP port                                                                         | 8080
  eclair.api.password         | API password (BASIC)                                                                  | "" (must be set if the API is enabled)
- eclair.bitcoind.rpcuser     | Viacoin Core RPC user                                                                 | foo
- eclair.bitcoind.rpcpassword | Viacoin Core RPC password                                                             | bar
- eclair.bitcoind.zmq         | Viacoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
+ eclair.viacoind.rpcuser     | Viacoin Core RPC user                                                                 | foo
+ eclair.viacoind.rpcpassword | Viacoin Core RPC password                                                             | bar
+ eclair.viacoind.zmq         | Viacoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
  eclair.gui.unit             | Unit in which amounts are displayed (possible values: msat, sat, mvia, via)           | via 
 
 Quotes are not required unless the value contains special characters. Full syntax guide [here](https://github.com/lightbend/config/blob/master/HOCON.md).
@@ -183,9 +183,9 @@ docker run -ti --rm -v "/path_on_host:/data" -e "JAVA_OPTS=-Declair.printToConso
 
 ## Mainnet usage
 
-Following are the minimum configuration files you need to use for Bitcoin Core and Eclair.
+Following are the minimum configuration files you need to use for Viacoin Core and Eclair.
 
-### Bitcoin Core configuration
+### Viacoin Core configuration
 
 ```
 testnet=0
@@ -203,8 +203,8 @@ addresstype=p2sh-segwit
 ```
 eclair.chain=mainnet
 eclair.viacoind.rpcport=5222
-eclair.viacoind.rpcuser=<your-bitcoin-core-rpc-user-here>
-eclair.viacoind.rpcpassword=<your-bitcoin-core-rpc-passsword-here>
+eclair.viacoind.rpcuser=<your-viacoin-core-rpc-user-here>
+eclair.viacoind.rpcpassword=<your-viacoin-core-rpc-passsword-here>
 ```
 
 
