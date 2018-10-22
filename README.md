@@ -2,7 +2,6 @@
 
 [![Build Status](https://travis-ci.org/ACINQ/eclair.svg?branch=master)](https://travis-ci.org/ACINQ/eclair)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Gitter chat](https://img.shields.io/badge/chat-on%20gitter-red.svg)](https://gitter.im/ACINQ/eclair)
 
 **Eclair** (french for Lightning) is a scala implementation of the Lightning Network. It can run with or without a GUI, and a JSON-RPC API is also available.
 
@@ -30,7 +29,7 @@ Please see the latest [release note](https://github.com/viacoin/eclair/releases)
 
 ### Configuring Viacoin Core
 
-:warning: Eclair requires Viacoin Core 0.16.0 or higher. If you are upgrading an existing wallet, you need to create a new address and send all your funds to that address.
+:warning: Eclair requires Viacoin Core 0.15.2 or higher. If you are upgrading an existing wallet, you need to create a new address and send all your funds to that address.
 
 Eclair needs a _synchronized_, _segwit-ready_, **_zeromq-enabled_**, _wallet-enabled_, _non-pruning_, _tx-indexing_ [Viacoin Core](https://github.com/viacoin/viacoin) node. 
 Eclair will use any VIA it finds in the Viacoin Core wallet to fund any channels you choose to open. Eclair will return VIA from closed channels to this wallet.
@@ -45,6 +44,11 @@ txindex=1
 zmqpubrawblock=tcp://127.0.0.1:29000
 zmqpubrawtx=tcp://127.0.0.1:29000
 addresstype=p2sh-segwit
+```
+
+:warning: If you are using Viacoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
+```
+deprecatedrpc=signrawtransaction
 ```
 
 ### Installing Eclair
@@ -183,9 +187,9 @@ docker run -ti --rm -v "/path_on_host:/data" -e "JAVA_OPTS=-Declair.printToConso
 
 ## Mainnet usage
 
-Following are the minimum configuration files you need to use for Bitcoin Core and Eclair.
+Following are the minimum configuration files you need to use for Viacoin Core and Eclair.
 
-### Bitcoin Core configuration
+### Viacoin Core configuration
 
 ```
 testnet=0
@@ -198,6 +202,30 @@ zmqpubrawtx=tcp://127.0.0.1:29000
 addresstype=p2sh-segwit
 ```
 
+:warning: If you are using Viacoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
+```
+deprecatedrpc=signrawtransaction
+```
+
+You may also want to take advantage of the new configuration sections in `viacoin.conf` to manage parameters that are network speficic, so you can reasliy run your viacoin node on both mainnet and testnet. For example you could use:
+
+```
+server=1
+txindex=1
+addresstype=p2sh-segwit
+deprecatedrpc=signrawtransaction
+[main]
+rpcuser=<your-mainnet-rpc-user-here>
+rpcpassword=<your-mainnet-rpc-password-here>
+zmqpubrawblock=tcp://127.0.0.1:29000
+zmqpubrawtx=tcp://127.0.0.1:29000
+[test]
+rpcuser=<your-testnet-rpc-user-here>
+rpcpassword=<your-testnet-rpc-password-here>
+zmqpubrawblock=tcp://127.0.0.1:29001
+zmqpubrawtx=tcp://127.0.0.1:29001
+```
+
 ### Eclair configuration
 
 ```
@@ -206,7 +234,6 @@ eclair.viacoind.rpcport=5222
 eclair.viacoind.rpcuser=<your-bitcoin-core-rpc-user-here>
 eclair.viacoind.rpcpassword=<your-bitcoin-core-rpc-passsword-here>
 ```
-
 
 ## Resources
 - [1] [The Bitcoin Lightning Network: Scalable Off-Chain Instant Payments](https://lightning.network/lightning-network-paper.pdf) by Joseph Poon and Thaddeus Dryja
