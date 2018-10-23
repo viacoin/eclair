@@ -3,7 +3,7 @@
 [![Build Status](https://travis-ci.org/ACINQ/eclair.svg?branch=master)](https://travis-ci.org/ACINQ/eclair)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Eclair** (french for Lightning) is a scala implementation of the Lightning Network. It can run with or without a GUI, and a JSON-RPC API is also available.
+**Viacoin Eclair** (french for Lightning) is a scala implementation of the Lightning Network. It can run with or without a GUI, and a JSON-RPC API is also available.
 
 This software follows the [Lightning Network Specifications (BOLTs)](https://github.com/lightningnetwork/lightning-rfc). Other implementations include [c-lightning](https://github.com/viacoin/lightning) and [lnd](https://github.com/viacoin/lnd).
  
@@ -44,12 +44,15 @@ txindex=1
 zmqpubrawblock=tcp://127.0.0.1:29000
 zmqpubrawtx=tcp://127.0.0.1:29000
 addresstype=p2sh-segwit
+discardfee=0.00000001
+mintxfee=0.00000001
+minrelaytxfee=0.00000001
 ```
 
-:warning: If you are using Viacoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
+<!-- :warning: If you are using Viacoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
 ```
 deprecatedrpc=signrawtransaction
-```
+``` -->
 
 ### Installing Eclair
 
@@ -84,7 +87,7 @@ Eclair reads its configuration file, and write its logs, to `~/.eclair` by defau
 To change your node's configuration, create a file named `eclair.conf` in `~/.eclair`. Here's an example configuration file:
 
 ```
-eclair.chain=testnet
+eclair.chain=mainnet
 eclair.node-alias=eclair
 eclair.node-color=49daaa
 ```
@@ -93,14 +96,14 @@ Here are some of the most common options:
 
 name                         | description                                                                           | default value
 -----------------------------|---------------------------------------------------------------------------------------|--------------
- eclair.chain                | Which blockchain to use: *regtest*, *testnet* or *mainnet*                            | testnet
+ eclair.chain                | Which blockchain to use: *regtest*, *testnet* or *mainnet*                            | mainnet
  eclair.server.port          | Lightning TCP port                                                                    | 9735
  eclair.api.enabled          | Enable/disable the API                                                                | false. By default the API is disabled. If you want to enable it, you must set a password.
  eclair.api.port             | API HTTP port                                                                         | 8080
  eclair.api.password         | API password (BASIC)                                                                  | "" (must be set if the API is enabled)
- eclair.bitcoind.rpcuser     | Viacoin Core RPC user                                                                 | foo
- eclair.bitcoind.rpcpassword | Viacoin Core RPC password                                                             | bar
- eclair.bitcoind.zmq         | Viacoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
+ eclair.viacoind.rpcuser     | Viacoin Core RPC user                                                                 | via
+ eclair.viacoind.rpcpassword | Viacoin Core RPC password                                                             | via
+ eclair.viacoind.zmq         | Viacoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
  eclair.gui.unit             | Unit in which amounts are displayed (possible values: msat, sat, mvia, via)           | via 
 
 Quotes are not required unless the value contains special characters. Full syntax guide [here](https://github.com/lightbend/config/blob/master/HOCON.md).
@@ -200,14 +203,18 @@ txindex=1
 zmqpubrawblock=tcp://127.0.0.1:29000
 zmqpubrawtx=tcp://127.0.0.1:29000
 addresstype=p2sh-segwit
+discardfee=0.00000001
+mintxfee=0.00000001
+minrelaytxfee=0.00000001
+
 ```
 
-:warning: If you are using Viacoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
+<!-- :warning: If you are using Viacoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
 ```
 deprecatedrpc=signrawtransaction
-```
+``` -->
 
-You may also want to take advantage of the new configuration sections in `viacoin.conf` to manage parameters that are network speficic, so you can reasliy run your viacoin node on both mainnet and testnet. For example you could use:
+<!-- You may also want to take advantage of the new configuration sections in `viacoin.conf` to manage parameters that are network speficic, so you can reasliy run your viacoin node on both mainnet and testnet. For example you could use:
 
 ```
 server=1
@@ -224,7 +231,7 @@ rpcuser=<your-testnet-rpc-user-here>
 rpcpassword=<your-testnet-rpc-password-here>
 zmqpubrawblock=tcp://127.0.0.1:29001
 zmqpubrawtx=tcp://127.0.0.1:29001
-```
+``` -->
 
 ### Eclair configuration
 
