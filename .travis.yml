@@ -20,6 +20,3 @@ cache:
   - $HOME/.m2
 jdk:
  - oraclejdk8
-notifications:
- email:
-  - ops@acinq.fr
