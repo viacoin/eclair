@@ -13,7 +13,7 @@ This software follows the [Lightning Network Specifications (BOLTs)](https://git
  
  :rotating_light: If you intend to run Eclair on mainnet:
  - Keep in mind that it is beta-quality software and **don't put too much money** in it
- - Eclair's JSON-RPC API should **NOT** be accessible from the outside world (similarly to Bitcoin Core API)
+ - Eclair's JSON-RPC API should **NOT** be accessible from the outside world (similarly to Viacoin Core API)
  - Specific [configuration instructions for mainnet](#mainnet-usage) are provided below (by default Eclair runs on testnet)
  
 ---
@@ -53,6 +53,10 @@ minrelaytxfee=0.00000001
 ```
 deprecatedrpc=signrawtransaction
 ``` -->
+
+### Viacoin Bootstrap
+
+The bootstrap with txindex can be downloaded here: https://bootstrap.viacoin.org/bootstrap-viacoin-txindex.tar.gz
 
 ### Installing Eclair
 
