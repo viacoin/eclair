@@ -19,6 +19,7 @@ package fr.acinq.eclair.router
 import akka.actor.ActorSystem
 import akka.pattern.pipe
 import akka.testkit.TestProbe
+import com.softwaremill.sttp.asynchttpclient.future.AsyncHttpClientFutureBackend
 import fr.acinq.bitcoin.Crypto.PrivateKey
 import fr.acinq.bitcoin.{BinaryData, Block, Satoshi, Script, Transaction}
 import fr.acinq.eclair.blockchain.ValidateResult
@@ -44,7 +45,8 @@ class AnnouncementsBatchValidationSpec extends FunSuite {
     import scala.concurrent.ExecutionContext.Implicits.global
 
     implicit val system = ActorSystem()
-    implicit val extendedBitcoinClient = new ExtendedBitcoinClient(new BasicBitcoinJsonRPCClient(user = "foo", password = "bar", host = "localhost", port = 25222))
+    implicit val sttpBackend  = AsyncHttpClientFutureBackend()
+    implicit val extendedBitcoinClient = new ExtendedBitcoinClient(new BasicBitcoinJsonRPCClient(user = "via", password = "via", host = "localhost", port = 25222))
 
     val channels = for (i <- 0 until 50) yield {
       // let's generate a block every 10 txs so that we can compute short ids
@@ -76,7 +78,7 @@ object AnnouncementsBatchValidationSpec {
   def generateBlocks(numBlocks: Int)(implicit extendedBitcoinClient: ExtendedBitcoinClient, ec: ExecutionContext) =
     Await.result(extendedBitcoinClient.rpcClient.invoke("generate", numBlocks), 10 seconds)
 
-  def simulateChannel()(implicit extendedBitcoinClient: ExtendedBitcoinClient, ec: ExecutionContext, system: ActorSystem): SimulatedChannel = {
+  def simulateChannel()(implicit extendedBitcoinClient: ExtendedBitcoinClient, ec: ExecutionContext): SimulatedChannel = {
     val node1Key = randomKey
     val node2Key = randomKey
     val node1BitcoinKey = randomKey

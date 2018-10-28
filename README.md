@@ -103,8 +103,9 @@ name                         | description                                      
  eclair.api.password         | API password (BASIC)                                                                  | "" (must be set if the API is enabled)
  eclair.viacoind.rpcuser     | Viacoin Core RPC user                                                                 | via
  eclair.viacoind.rpcpassword | Viacoin Core RPC password                                                             | via
- eclair.viacoind.zmq         | Viacoin Core ZMQ address                                                              | tcp://127.0.0.1:29000
- eclair.gui.unit             | Unit in which amounts are displayed (possible values: msat, sat, mvia, via)           | via 
+ eclair.viacoind.zmqblock    | Viacoin Core ZMQ block address                                                        | "tcp://127.0.0.1:29000"
+ eclair.viacoind.zmqtx       | viacoin Core ZMQ tx address                                                           | "tcp://127.0.0.1:29000"
+ eclair.gui.unit             | Unit in which amounts are displayed (possible values: msat, sat, mbtc, btc)           | via
 
 Quotes are not required unless the value contains special characters. Full syntax guide [here](https://github.com/lightbend/config/blob/master/HOCON.md).
 
