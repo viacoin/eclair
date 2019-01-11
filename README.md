@@ -3,7 +3,7 @@
 [![Build Status](https://travis-ci.org/ACINQ/eclair.svg?branch=master)](https://travis-ci.org/ACINQ/eclair)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Viacoin Eclair** (french for Lightning) is a scala implementation of the Lightning Network. It can run with or without a GUI, and a JSON-RPC API is also available.
+**Viacoin Eclair** (french for Lightning) is a scala implementation of the Viacoin Lightning Network. It can run with or without a GUI, and a JSON-RPC API is also available.
 
 This software follows the [Lightning Network Specifications (BOLTs)](https://github.com/lightningnetwork/lightning-rfc). Other implementations include [c-lightning](https://github.com/viacoin/lightning) and [lnd](https://github.com/viacoin/lnd).
  
@@ -219,7 +219,7 @@ minrelaytxfee=0.00000001
 deprecatedrpc=signrawtransaction
 ``` -->
 
-<!-- You may also want to take advantage of the new configuration sections in `viacoin.conf` to manage parameters that are network speficic, so you can reasliy run your viacoin node on both mainnet and testnet. For example you could use:
+You may also want to take advantage of the new configuration sections in `viacoin.conf` to manage parameters that are network specific, so you can easily run your viacoin node on both mainnet and testnet. For example you could use:
 
 ```
 server=1
@@ -243,8 +243,8 @@ zmqpubrawtx=tcp://127.0.0.1:29001
 ```
 eclair.chain=mainnet
 eclair.viacoind.rpcport=5222
-eclair.viacoind.rpcuser=<your-bitcoin-core-rpc-user-here>
-eclair.viacoind.rpcpassword=<your-bitcoin-core-rpc-passsword-here>
+eclair.viacoind.rpcuser=<your-viacoin-core-rpc-user-here>
+eclair.viacoind.rpcpassword=<your-viacoin-core-rpc-passsword-here>
 ```
 
 ## Resources
