@@ -89,10 +89,11 @@ class FxApp extends Application with Logging {
           val unitConf = setup.config.getString("gui.unit")
           FxApp.unit = Try(CoinUtils.getUnitFromString(unitConf)) match {
             case Failure(_) =>
-              logger.warn(s"$unitConf is not a valid gui unit, must be msat, sat, mvia or via. Defaulting to via.")
+              logger.warn(s"$unitConf is not a valid gui unit, must be msat, sat, bits, mvia or via. Defaulting to via.")
               BtcUnit
             case Success(u) => u
           }
+          CoinUtils.setCoinPattern(CoinUtils.getPatternFromUnit(FxApp.unit))
 
           val guiUpdater = system.actorOf(SimpleSupervisor.props(Props(classOf[GUIUpdater], controller), "gui-updater", SupervisorStrategy.Resume))
           system.eventStream.subscribe(guiUpdater, classOf[ChannelEvent])
@@ -108,8 +109,8 @@ class FxApp extends Application with Logging {
                 override def run(): Unit = {
                   val scene = new Scene(mainRoot)
                   primaryStage.setTitle("Viacoin Eclair - Lightning Network")
-                  primaryStage.setMinWidth(600)
-                  primaryStage.setWidth(960)
+                  primaryStage.setMinWidth(750)
+                  primaryStage.setWidth(980)
                   primaryStage.setMinHeight(400)
                   primaryStage.setHeight(640)
                   primaryStage.setOnCloseRequest(new EventHandler[WindowEvent] {
