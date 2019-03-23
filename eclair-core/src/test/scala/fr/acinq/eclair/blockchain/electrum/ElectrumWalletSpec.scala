@@ -76,7 +76,7 @@ class ElectrumWalletSpec extends TestKit(ActorSystem("test")) with FunSuiteLike 
 
   test("generate 500 blocks") {
     val sender = TestProbe()
-    logger.info(s"waiting for bitcoind to initialize...")
+    logger.info(s"waiting for viacoind to initialize...")
     awaitCond({
       sender.send(bitcoincli, BitcoinReq("getnetworkinfo"))
       sender.receiveOne(5 second).isInstanceOf[JValue]

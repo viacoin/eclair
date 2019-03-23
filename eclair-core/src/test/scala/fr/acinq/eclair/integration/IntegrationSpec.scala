@@ -80,7 +80,7 @@ class IntegrationSpec extends TestKit(ActorSystem("test")) with BitcoindService 
     "eclair.chain" -> "regtest",
     "eclair.server.public-ips.1" -> "127.0.0.1",
     "eclair.bitcoind.port" -> 28333,
-    "eclair.bitcoind.rpcport" -> 28332,
+    "eclair.bitcoind.rpcport" -> 25222,
     "eclair.bitcoind.zmqblock" -> "tcp://127.0.0.1:28334",
     "eclair.bitcoind.zmqtx" -> "tcp://127.0.0.1:28335",
     "eclair.mindepth-blocks" -> 2,
@@ -108,7 +108,7 @@ class IntegrationSpec extends TestKit(ActorSystem("test")) with BitcoindService 
 
   test("wait bitcoind ready") {
     val sender = TestProbe()
-    logger.info(s"waiting for bitcoind to initialize...")
+    logger.info(s"waiting for viacoind to initialize...")
     awaitCond({
       sender.send(bitcoincli, BitcoinReq("getnetworkinfo"))
       sender.receiveOne(5 second).isInstanceOf[JValue]

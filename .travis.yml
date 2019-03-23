@@ -20,6 +20,3 @@ cache:
   - $HOME/.m2
 jdk:
  - openjdk11
-notifications:
- email:
-  - ops@acinq.fr

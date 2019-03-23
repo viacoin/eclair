@@ -35,7 +35,7 @@ Please see the latest [release note](https://github.com/ACINQ/eclair/releases) f
 Eclair needs a _synchronized_, _segwit-ready_, **_zeromq-enabled_**, _wallet-enabled_, _non-pruning_, _tx-indexing_ [Bitcoin Core](https://github.com/bitcoin/bitcoin) node. 
 Eclair will use any BTC it finds in the Bitcoin Core wallet to fund any channels you choose to open. Eclair will return BTC from closed channels to this wallet.
 
-Run bitcoind with the following minimal `bitcoin.conf`:
+Run bitcoind with the following minimal `viacoin.conf`:
 ```
 testnet=1
 server=1
@@ -47,7 +47,7 @@ zmqpubrawtx=tcp://127.0.0.1:29000
 addresstype=p2sh-segwit
 ```
 
-:warning: If you are using Bitcoin Core 0.17.0 you need to add following line to your `bitcoin.conf`:
+:warning: If you are using Bitcoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
 ```
 deprecatedrpc=signrawtransaction
 ```
@@ -79,7 +79,7 @@ Eclair reads its configuration file, and write its logs, to `~/.eclair` by defau
 To change your node's configuration, create a file named `eclair.conf` in `~/.eclair`. Here's an example configuration file:
 
 ```
-eclair.chain=testnet
+eclair.chain=mainnet
 eclair.node-alias=eclair
 eclair.node-color=49daaa
 ```
@@ -200,12 +200,12 @@ zmqpubrawtx=tcp://127.0.0.1:29000
 addresstype=p2sh-segwit
 ```
 
-:warning: If you are using Bitcoin Core 0.17.0 you need to add following line to your `bitcoin.conf`:
+:warning: If you are using Bitcoin Core 0.17.0 you need to add following line to your `viacoin.conf`:
 ```
 deprecatedrpc=signrawtransaction
 ```
 
-You may also want to take advantage of the new configuration sections in `bitcoin.conf` to manage parameters that are network specific, so you can easily run your bitcoin node on both mainnet and testnet. For example you could use:
+You may also want to take advantage of the new configuration sections in `viacoin.conf` to manage parameters that are network specific, so you can easily run your bitcoin node on both mainnet and testnet. For example you could use:
 
 ```
 server=1
