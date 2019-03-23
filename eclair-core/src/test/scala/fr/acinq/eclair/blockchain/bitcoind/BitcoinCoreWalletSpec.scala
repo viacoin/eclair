@@ -46,7 +46,7 @@ class BitcoinCoreWalletSpec extends TestKit(ActorSystem("test")) with BitcoindSe
     "eclair.spv" -> false,
     "eclair.server.public-ips.1" -> "localhost",
     "eclair.bitcoind.port" -> 28333,
-    "eclair.bitcoind.rpcport" -> 28332,
+    "eclair.bitcoind.rpcport" -> 25222,
     "eclair.router-broadcast-interval" -> "2 second",
     "eclair.auto-reconnect" -> false))
   val config = ConfigFactory.load(commonConfig).getConfig("eclair")
