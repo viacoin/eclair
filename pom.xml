@@ -233,7 +233,7 @@
     <repositories>
         <repository>
             <id>fr.acinq</id>
-            <url>http://bootstrap.viacoin.org/repositories/snapshots/</url>
+            <url>https://github.com/viacoin/viacoin-lib-repo/raw/master/</url>
         </repository>
 
         <repository>

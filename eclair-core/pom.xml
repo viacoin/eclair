@@ -164,7 +164,7 @@
         <dependency>
             <groupId>fr.acinq</groupId>
             <artifactId>viacoin-lib_${scala.version.short}</artifactId>
-            <version>0.9.19-SNAPSHOT</version>
+            <version>0.12-SNAPSHOT</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.google.protobuf</groupId>
