@@ -228,16 +228,18 @@ object PaymentRequest {
       f.version match {
         case 17 if prefix == "lnvia" => Base58Check.encode(Base58.Prefix.PubkeyAddress, data)
         case 18 if prefix == "lnvia" => Base58Check.encode(Base58.Prefix.ScriptAddress, data)
-        case 17 if prefix == "lnvia" => Base58Check.encode(Base58.Prefix.PubkeyAddressTestnet, data)
-        case 18 if prefix == "lnvia" => Base58Check.encode(Base58.Prefix.ScriptAddressTestnet, data)
+        case 17 if prefix == "lntvia" || prefix == "lnviart" => Base58Check.encode(Base58.Prefix.PubkeyAddressTestnet, data)
+        case 18 if prefix == "lntvia" || prefix == "lnviart" => Base58Check.encode(Base58.Prefix.ScriptAddressTestnet, data)
         case version if prefix == "lnvia" => Bech32.encodeWitnessAddress("via", version, data)
         case version if prefix == "lntvia" => Bech32.encodeWitnessAddress("tvia", version, data)
+        case version if prefix == "lnviart" => Bech32.encodeWitnessAddress("viart", version, data)
       }
     }
   }
 
   /**
-    * This returns a bitvector with the minimum size necessary to encode the long
+    * This returns a bitvector with the minimum size necessary to encode the long, left padded
+    * to have a length (in bits) multiples of 5
     * @param l
     */
   def long2bits(l: Long) = {
@@ -246,7 +248,11 @@ object PaymentRequest {
     for (i <- 0 until bin.size.toInt) {
       if (highest == -1 && bin(i)) highest = i
     }
-    if (highest == -1) BitVector.empty else bin.drop(highest)
+    val nonPadded = if (highest == -1) BitVector.empty else bin.drop(highest)
+    nonPadded.size % 5 match {
+      case 0 => nonPadded
+      case remaining => BitVector.fill(5 - remaining)(false) ++ nonPadded
+    }
   }
 
   /**
